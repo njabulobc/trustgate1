@@ -27,17 +27,17 @@ const buttonClass = 'rounded-md bg-brand-500 px-4 py-2 text-sm font-medium text-
 
 export default function App() {
   const [intake, setIntake] = useState<IntakeResponse | null>(null);
-  const [clientType, setClientType] = useState<ClientType>('INDIVIDUAL');
+  const [clientType, setClientType] = useState<ClientType>('individual');
   const [clientName, setClientName] = useState('');
   const [email, setEmail] = useState('');
   const [dealRef, setDealRef] = useState('');
-  const [transactionType, setTransactionType] = useState<DealTransactionType>('PURCHASE');
+  const [transactionType, setTransactionType] = useState<DealTransactionType>('purchase');
   const [propertyLocation, setPropertyLocation] = useState('');
   const [transactionValue, setTransactionValue] = useState('0');
 
   const [relationshipForm, setRelationshipForm] = useState({
-    party_type: 'INDIVIDUAL' as LinkedPartyType,
-    role: 'OWNER' as LinkedPartyRole,
+    party_type: 'individual' as LinkedPartyType,
+    role: 'beneficial_owner' as LinkedPartyRole,
     relationship_to_client: '',
     primary_name: ''
   });
@@ -46,7 +46,7 @@ export default function App() {
 
   const [screeningResults, setScreeningResults] = useState<ScreeningResult[]>([]);
   const [selectedCandidateId, setSelectedCandidateId] = useState<number | null>(null);
-  const [candidateDisposition, setCandidateDisposition] = useState<CandidateDisposition>('OPEN');
+  const [candidateDisposition, setCandidateDisposition] = useState<CandidateDisposition>('pending');
   const [dispositionReason, setDispositionReason] = useState('');
 
   const [riskAssessment, setRiskAssessment] = useState<RiskAssessment | null>(null);
@@ -85,7 +85,7 @@ export default function App() {
           client_type: clientType,
           primary_name: clientName,
           email: email || undefined,
-          status: 'DRAFT'
+          status: 'draft'
         },
         deal: {
           transaction_reference: dealRef,
@@ -94,7 +94,7 @@ export default function App() {
           transaction_value: transactionValue,
           currency: 'USD',
           is_cross_border: false,
-          status: 'DRAFT'
+          status: 'draft'
         }
       };
       const created = await api.createIntake(payload);
@@ -197,8 +197,8 @@ export default function App() {
         <form className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2" onSubmit={handleCreateIntake}>
           <label className="text-sm font-medium">Client type
             <select className={inputClass} value={clientType} onChange={(e) => setClientType(e.target.value as ClientType)}>
-              <option value="INDIVIDUAL">Individual</option>
-              <option value="ENTITY">Entity</option>
+              <option value="individual">Individual</option>
+              <option value="company">Company</option>
             </select>
           </label>
           <label className="text-sm font-medium">Client primary name*
@@ -212,10 +212,12 @@ export default function App() {
           </label>
           <label className="text-sm font-medium">Transaction type
             <select className={inputClass} value={transactionType} onChange={(e) => setTransactionType(e.target.value as DealTransactionType)}>
-              <option value="PURCHASE">Purchase</option>
-              <option value="SALE">Sale</option>
-              <option value="TRANSFER">Transfer</option>
-              <option value="LEASE">Lease</option>
+              <option value="purchase">Purchase</option>
+              <option value="sale">Sale</option>
+              <option value="transfer">Transfer</option>
+              <option value="lease">Lease</option>
+              <option value="rental">Rental</option>
+              <option value="other">Other</option>
             </select>
           </label>
           <label className="text-sm font-medium">Property location*
@@ -237,18 +239,19 @@ export default function App() {
         <form className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3" onSubmit={handleAddRelationship}>
           <label className="text-sm font-medium">Party type
             <select className={inputClass} value={relationshipForm.party_type} onChange={(e) => setRelationshipForm((old) => ({ ...old, party_type: e.target.value as LinkedPartyType }))}>
-              <option value="INDIVIDUAL">Individual</option>
-              <option value="ENTITY">Entity</option>
+              <option value="individual">Individual</option>
+              <option value="company">Company</option>
             </select>
           </label>
           <label className="text-sm font-medium">Role
             <select className={inputClass} value={relationshipForm.role} onChange={(e) => setRelationshipForm((old) => ({ ...old, role: e.target.value as LinkedPartyRole }))}>
-              <option value="OWNER">Owner</option>
-              <option value="BENEFICIAL_OWNER">Beneficial owner</option>
-              <option value="DIRECTOR">Director</option>
-              <option value="AUTHORIZED_SIGNATORY">Authorized signatory</option>
-              <option value="INTERMEDIARY">Intermediary</option>
-              <option value="OTHER">Other</option>
+              <option value="beneficial_owner">Beneficial owner</option>
+              <option value="representative">Representative</option>
+              <option value="co_buyer">Co-buyer</option>
+              <option value="co_seller">Co-seller</option>
+              <option value="payer">Payer</option>
+              <option value="intermediary">Intermediary</option>
+              <option value="other">Other</option>
             </select>
           </label>
           <label className="text-sm font-medium">Relationship to client*
@@ -324,10 +327,10 @@ export default function App() {
             <p className="mt-1 text-xs text-slate-600">Selected candidate_id: {selectedCandidateId ?? 'none'}</p>
             <label className="mt-3 block text-sm font-medium">Disposition
               <select className={inputClass} value={candidateDisposition} onChange={(e) => setCandidateDisposition(e.target.value as CandidateDisposition)}>
-                <option value="OPEN">OPEN</option>
-                <option value="CLEAR">CLEAR</option>
-                <option value="ESCALATED">ESCALATED</option>
-                <option value="FALSE_POSITIVE">FALSE_POSITIVE</option>
+                <option value="pending">pending</option>
+                <option value="confirmed_match">confirmed_match</option>
+                <option value="needs_edd">needs_edd</option>
+                <option value="false_positive">false_positive</option>
               </select>
             </label>
             <label className="mt-3 block text-sm font-medium">Reason
