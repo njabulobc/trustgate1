@@ -1,4 +1,4 @@
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,6 +14,30 @@ class Settings(BaseSettings):
         default="sqlite:///./trustgate.db",
         description="SQLite database URL for the TrustGate MVP.",
     )
+
+    CORS_ALLOW_ORIGINS: list[str] = Field(
+            default_factory=lambda: ["http://localhost:5173"],
+            description=(
+                "Allowed CORS origins. In production, set this explicitly via environment "
+                "variables (e.g., CORS_ALLOW_ORIGINS='[\"https://app.example.com\"]' or a "
+                "comma-separated list)."
+            ),
+        )
+    CORS_ALLOW_CREDENTIALS: bool = Field(
+            default=False,
+            description="Whether CORS should allow credentials (cookies/Authorization headers).",
+        )
+
+    @field_validator("CORS_ALLOW_ORIGINS", mode="before")
+    @classmethod
+    def parse_cors_allow_origins(cls, value):
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped.startswith("["):
+                return value
+            return [origin.strip() for origin in value.split(",") if origin.strip()]
+        return value
+
 
     OPENSANCTIONS_API_KEY: SecretStr = Field(
         ...,
