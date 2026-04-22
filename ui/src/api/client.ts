@@ -1,11 +1,11 @@
-export type ClientType = 'INDIVIDUAL' | 'ENTITY';
-export type ClientStatus = 'DRAFT' | 'ACTIVE' | 'ARCHIVED';
-export type DealStatus = 'DRAFT' | 'ACTIVE' | 'CLOSED' | 'ABORTED';
-export type DealTransactionType = 'PURCHASE' | 'SALE' | 'TRANSFER' | 'LEASE';
-export type LinkedPartyType = 'INDIVIDUAL' | 'ENTITY';
-export type LinkedPartyRole = 'OWNER' | 'BENEFICIAL_OWNER' | 'DIRECTOR' | 'AUTHORIZED_SIGNATORY' | 'INTERMEDIARY' | 'OTHER';
-export type ScreeningSubjectType = 'CLIENT' | 'LINKED_PARTY';
-export type CandidateDisposition = 'OPEN' | 'CLEAR' | 'ESCALATED' | 'FALSE_POSITIVE';
+export type ClientType = 'individual' | 'company';
+export type ClientStatus = 'draft' | 'in_progress' | 'submitted' | 'under_review' | 'completed' | 'rejected';
+export type DealStatus = 'draft' | 'in_progress' | 'screening_pending' | 'under_review' | 'completed' | 'cancelled';
+export type DealTransactionType = 'purchase' | 'sale' | 'lease' | 'rental' | 'transfer' | 'other';
+export type LinkedPartyType = 'individual' | 'company';
+export type LinkedPartyRole = 'beneficial_owner' | 'representative' | 'co_buyer' | 'co_seller' | 'payer' | 'intermediary' | 'other';
+export type ScreeningSubjectType = 'client' | 'linked_party';
+export type CandidateDisposition = 'pending' | 'confirmed_match' | 'false_positive' | 'needs_edd';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
 
@@ -126,7 +126,7 @@ export const api = {
   runScreening: (clientId: number) => request<ScreeningResult[]>('/screening/run', {
     method: 'POST',
     body: JSON.stringify({
-      subject_type: 'CLIENT',
+      subject_type: 'client',
       client_id: clientId
     })
   }),
