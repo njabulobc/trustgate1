@@ -381,8 +381,7 @@ export default function App() {
                         <p className="mt-1 text-xs text-slate-600">
                           dataset: {candidate.dataset ?? 'n/a'} · match_score: {candidate.match_score ?? 'n/a'} · country: {candidate.country ?? 'n/a'}
                         </p>
-                        <p className="mt-1 text-xs text-slate-600">notes/topics: {candidate.notes ?? extractTopics(candidate).join(', ') || 'n/a'}</p>
-                        <p className="mt-1 text-xs text-slate-500">
+                        <p className="mt-1 text-xs text-slate-600">notes/topics: {(candidate.notes ?? extractTopics(candidate).join(', ')) || 'n/a'}</p>                        <p className="mt-1 text-xs text-slate-500">
                           payload excerpt: schema={String((candidate.candidate_payload as Record<string, unknown> | null)?.schema ?? 'n/a')} · id={String((candidate.candidate_payload as Record<string, unknown> | null)?.id ?? 'n/a')}
                         </p>
                         {extractPolicyAlerts(candidate).length > 0 && (
