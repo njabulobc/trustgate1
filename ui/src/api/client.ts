@@ -72,12 +72,21 @@ export type LinkedPartyPayload = Omit<LinkedParty, 'id'> & {
 
 export type ScreeningCandidate = {
   id: number;
+  screening_result_id: number;
+  provider_candidate_id: string | null;
+  provider_entity_id: string | null;
   matched_name: string;
-  match_score: string | null;
+  match_score: string | number | null;
   list_name: string | null;
+  dataset: string | null;
   country: string | null;
+  notes: string | null;
   disposition: CandidateDisposition;
   disposition_reason: string | null;
+  reviewed_at: string | null;
+  candidate_payload: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type ScreeningResult = {
@@ -88,7 +97,14 @@ export type ScreeningResult = {
   provider_name: string;
   status: string;
   subject_name_snapshot: string;
+  query_text?: string | null;
+  request_payload?: Record<string, unknown> | null;
+  response_payload?: Record<string, unknown> | null;
+  error_message?: string | null;
   screened_at: string;
+  reviewed_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
   candidates: ScreeningCandidate[];
 };
 
@@ -98,6 +114,7 @@ export type RiskAssessment = {
   deal_id: number | null;
   total_score: string;
   risk_level: string;
+  factor_breakdown?: Record<string, unknown> | null;
   summary: string | null;
   assessed_at: string;
 };

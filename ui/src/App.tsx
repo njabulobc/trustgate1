@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import {
   api,
   CandidateDisposition,
+  ScreeningCandidate,
   DealTransactionType,
   IntakePayload,
   IntakeResponse,
@@ -24,6 +25,50 @@ type AsyncState = {
 const cardClass = 'rounded-xl border border-slate-200 bg-white p-6 shadow-sm';
 const inputClass = 'w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-50';
 const buttonClass = 'rounded-md bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50';
+const badgeClass = 'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium';
+
+type PolicyAlert = {
+  severity: string;
+  rationale?: string | null;
+  source?: string | null;
+};
+
+function formatDateTime(value?: string | null): string {
+  if (!value) return '—';
+  return new Date(value).toLocaleString();
+}
+
+function extractTopics(candidate: ScreeningCandidate): string[] {
+  const payload = candidate.candidate_payload;
+  if (!payload || typeof payload !== 'object') return [];
+  const topics = (payload as Record<string, unknown>).topics;
+  if (!Array.isArray(topics)) return [];
+  return topics.map((topic) => String(topic));
+}
+
+function extractPolicyAlerts(candidate: ScreeningCandidate): PolicyAlert[] {
+  const payload = candidate.candidate_payload;
+  if (!payload || typeof payload !== 'object') return [];
+  const record = payload as Record<string, unknown>;
+  const sources = [record.alerts, record.policy_alerts, record.policy_hits];
+  const alerts = sources.find((value) => Array.isArray(value));
+  if (!Array.isArray(alerts)) return [];
+
+  return alerts
+    .filter((alert): alert is Record<string, unknown> => typeof alert === 'object' && alert !== null)
+    .map((alert) => ({
+      severity: String(alert.severity ?? alert.level ?? 'unknown'),
+      rationale: typeof alert.rationale === 'string' ? alert.rationale : typeof alert.reason === 'string' ? alert.reason : null,
+      source: typeof alert.policy === 'string' ? alert.policy : null
+    }));
+}
+
+function severityBadgeClass(severity: string): string {
+  const normalized = severity.toLowerCase();
+  if (normalized === 'high' || normalized === 'critical') return `${badgeClass} bg-rose-100 text-rose-700`;
+  if (normalized === 'medium') return `${badgeClass} bg-amber-100 text-amber-700`;
+  return `${badgeClass} bg-slate-100 text-slate-700`;
+}
 
 export default function App() {
   const [intake, setIntake] = useState<IntakeResponse | null>(null);
@@ -70,6 +115,18 @@ export default function App() {
     () => screeningResults.flatMap((result) => result.candidates.map((candidate) => ({ ...candidate, screeningResultId: result.id }))),
     [screeningResults]
   );
+  const selectedCandidate = useMemo(
+    () => flatCandidates.find((candidate) => candidate.id === selectedCandidateId) ?? null,
+    [flatCandidates, selectedCandidateId]
+  );
+  const selectedCandidateAlerts = useMemo(
+    () => (selectedCandidate ? extractPolicyAlerts(selectedCandidate) : []),
+    [selectedCandidate]
+  );
+  const selectedCandidateHasHighSeverity = selectedCandidateAlerts.some((alert) => {
+    const severity = alert.severity.toLowerCase();
+    return severity === 'high' || severity === 'critical';
+  });
 
   async function handleCreateIntake(event: FormEvent) {
     event.preventDefault();
@@ -154,6 +211,10 @@ export default function App() {
     event.preventDefault();
     if (!selectedCandidateId) {
       setScreeningState({ loading: false, error: 'Pick a candidate_id to update disposition.', success: null });
+      return;
+    }
+    if (selectedCandidateHasHighSeverity && dispositionReason.trim().length === 0) {
+      setScreeningState({ loading: false, error: 'Disposition reason is required for high-severity policy alerts.', success: null });
       return;
     }
     setScreeningState({ loading: true, error: null, success: null });
@@ -306,12 +367,34 @@ export default function App() {
             <h3 className="text-sm font-semibold">Results</h3>
             {screeningResults.map((result) => (
               <div key={result.id} className="mt-3 rounded border border-slate-100 p-3">
-                <p className="text-xs text-slate-600">Result #{result.id} · Subject: {result.subject_name_snapshot}</p>
+                <p className="text-xs text-slate-600">
+                  Result #{result.id} · Subject: {result.subject_name_snapshot}
+                </p>
+                <p className="mt-1 text-xs text-slate-600">
+                  Provider: <span className="font-medium">{result.provider_name}</span> · Status: <span className="font-medium">{result.status}</span> · Screened: <span className="font-medium">{formatDateTime(result.screened_at)}</span>
+                </p>
                 <ul className="mt-2 space-y-1 text-sm">
                   {result.candidates.map((candidate) => (
                     <li key={candidate.id}>
                       <button className="w-full rounded border border-slate-200 px-2 py-1 text-left hover:bg-slate-50" onClick={() => setSelectedCandidateId(candidate.id)}>
-                        candidate_id={candidate.id} · {candidate.matched_name} · {candidate.disposition}
+                        <p>candidate_id={candidate.id} · {candidate.matched_name} · {candidate.disposition}</p>
+                        <p className="mt-1 text-xs text-slate-600">
+                          dataset: {candidate.dataset ?? 'n/a'} · match_score: {candidate.match_score ?? 'n/a'} · country: {candidate.country ?? 'n/a'}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-600">notes/topics: {candidate.notes ?? extractTopics(candidate).join(', ') || 'n/a'}</p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          payload excerpt: schema={String((candidate.candidate_payload as Record<string, unknown> | null)?.schema ?? 'n/a')} · id={String((candidate.candidate_payload as Record<string, unknown> | null)?.id ?? 'n/a')}
+                        </p>
+                        {extractPolicyAlerts(candidate).length > 0 && (
+                          <div className="mt-2 space-y-1">
+                            {extractPolicyAlerts(candidate).map((alert, index) => (
+                              <div key={`${candidate.id}-alert-${index}`} className="text-xs">
+                                <span className={severityBadgeClass(alert.severity)}>{alert.severity.toUpperCase()}</span>
+                                <span className="ml-2 text-slate-700">{alert.source ? `${alert.source}: ` : ''}{alert.rationale ?? 'No rationale provided by backend policy output.'}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </button>
                     </li>
                   ))}
@@ -325,6 +408,11 @@ export default function App() {
           <form className="rounded-lg border border-slate-200 p-4" onSubmit={handleDispositionUpdate}>
             <h3 className="text-sm font-semibold">Update disposition</h3>
             <p className="mt-1 text-xs text-slate-600">Selected candidate_id: {selectedCandidateId ?? 'none'}</p>
+            {selectedCandidateHasHighSeverity && (
+              <p className="mt-2 rounded-md bg-amber-50 p-2 text-xs text-amber-700">
+                High-severity policy outcome detected. A disposition reason is required.
+              </p>
+            )}
             <label className="mt-3 block text-sm font-medium">Disposition
               <select className={inputClass} value={candidateDisposition} onChange={(e) => setCandidateDisposition(e.target.value as CandidateDisposition)}>
                 <option value="pending">pending</option>
@@ -334,9 +422,9 @@ export default function App() {
               </select>
             </label>
             <label className="mt-3 block text-sm font-medium">Reason
-              <textarea className={inputClass} value={dispositionReason} onChange={(e) => setDispositionReason(e.target.value)} rows={3} />
+              <textarea className={inputClass} value={dispositionReason} onChange={(e) => setDispositionReason(e.target.value)} rows={3} required={selectedCandidateHasHighSeverity} />
             </label>
-            <button className={`mt-4 ${buttonClass}`} disabled={screeningState.loading}>Apply Disposition</button>
+            <button className={`mt-4 ${buttonClass}`} disabled={screeningState.loading || (selectedCandidateHasHighSeverity && dispositionReason.trim().length === 0)}>Apply Disposition</button>
             <p className="mt-2 text-xs text-slate-500">Available candidate IDs: {flatCandidates.map((c) => c.id).join(', ') || '—'}</p>
           </form>
         </div>
