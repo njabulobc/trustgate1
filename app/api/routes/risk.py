@@ -1,18 +1,20 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.api.deps import DBSession
-from app.schemas.risk import RiskAssessmentRead, RiskAssessmentResponse
+from app.api.deps import DBSession, require_roles
+from app.core.auth import UserRole
+from app.schemas.risk import RiskAssessmentHistoryResponse, RiskAssessmentRead, RiskAssessmentResponse
 from app.services.risk_service import (
     RiskAssessmentNotFoundError,
     RiskPersistenceError,
     RiskValidationError,
     assess_risk,
     get_latest_risk_assessment,
+    list_risk_assessment_history,
 )
 
-router = APIRouter(prefix="/risk", tags=["risk"])
+router = APIRouter(prefix="/risk", tags=["risk"], dependencies=[Depends(require_roles(UserRole.ANALYST, UserRole.REVIEWER))])
 
 
 def _build_risk_response(risk_assessment) -> RiskAssessmentResponse:
@@ -79,3 +81,23 @@ def read_latest_risk_assessment(
         ) from exc
 
     return _build_risk_response(risk_assessment)
+
+@router.get(
+    "/clients/{client_id}/history",
+    response_model=RiskAssessmentHistoryResponse,
+    status_code=status.HTTP_200_OK,
+)
+def read_risk_history(
+    client_id: int,
+    db: DBSession,
+    deal_id: int | None = Query(default=None),
+) -> RiskAssessmentHistoryResponse:
+    try:
+        history = list_risk_assessment_history(db=db, client_id=client_id, deal_id=deal_id)
+    except RiskValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    return RiskAssessmentHistoryResponse(items=[RiskAssessmentRead.model_validate(item) for item in history])

@@ -550,3 +550,16 @@ def get_latest_risk_assessment(
         client_id=client_id,
         deal_id=deal_id,
     )
+
+def list_risk_assessment_history(
+    db: Session,
+    client_id: int,
+    *,
+    deal_id: int | None = None,
+) -> list[RiskAssessment]:
+    RiskService._get_client_or_raise(db=db, client_id=client_id)
+    stmt = select(RiskAssessment).where(RiskAssessment.client_id == client_id)
+    if deal_id is not None:
+        stmt = stmt.where(RiskAssessment.deal_id == deal_id)
+    stmt = stmt.order_by(RiskAssessment.assessed_at.desc(), RiskAssessment.id.desc())
+    return db.execute(stmt).scalars().all()

@@ -5,10 +5,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.routes.auth import router as auth_router
 from app.api.routes.intake import router as intake_router
 from app.api.routes.relationships import router as relationships_router
 from app.api.routes.risk import router as risk_router
 from app.api.routes.screening import router as screening_router
+from app.api.routes.workflow import router as workflow_router
 from app.core.config import settings
 from app.core.database import Base, engine
 
@@ -19,6 +21,7 @@ from app.models.deal import Deal  # noqa: F401
 from app.models.linked_party import LinkedParty  # noqa: F401
 from app.models.risk_assessment import RiskAssessment  # noqa: F401
 from app.models.screening import ScreeningCandidate, ScreeningResult  # noqa: F401
+from app.models.workflow import WorkflowCase  # noqa: F401
 
 
 @asynccontextmanager
@@ -44,10 +47,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router)
 app.include_router(intake_router)
 app.include_router(relationships_router)
 app.include_router(screening_router)
 app.include_router(risk_router)
+app.include_router(workflow_router)
 
 
 @app.get("/health", tags=["health"])
