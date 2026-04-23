@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.api.deps import DBSession
+from app.api.deps import CurrentUser, DBSession, require_roles
+from app.models.user import UserRole
 from app.schemas.intake import (
     ClientRead,
     DealRead,
@@ -33,18 +34,17 @@ def _build_intake_response(*, client, deal) -> IntakeRead:
     "",
     response_model=IntakeRead,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_roles(UserRole.ADMIN, UserRole.ANALYST))],
 )
 def create_intake_case(
     payload: IntakeCreate,
     db: DBSession,
+    current_user: CurrentUser,
 ) -> IntakeRead:
     try:
-        client, deal = create_intake(db=db, payload=payload)
+        client, deal = create_intake(db=db, payload=payload, actor=current_user.email)
     except IntakeConflictError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(exc),
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
     return _build_intake_response(client=client, deal=deal)
 
@@ -53,23 +53,18 @@ def create_intake_case(
     "/clients/{client_id}",
     response_model=IntakeRead,
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_roles(UserRole.ADMIN, UserRole.ANALYST, UserRole.REVIEWER, UserRole.VIEWER))],
 )
 def read_intake_by_client(
     client_id: int,
     db: DBSession,
+    current_user: CurrentUser,
     deal_id: int | None = Query(default=None),
 ) -> IntakeRead:
     try:
-        client, deal = get_intake_by_client_id(
-            db=db,
-            client_id=client_id,
-            deal_id=deal_id,
-        )
+        client, deal = get_intake_by_client_id(db=db, client_id=client_id, deal_id=deal_id)
     except IntakeNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
     return _build_intake_response(client=client, deal=deal)
 
@@ -78,18 +73,17 @@ def read_intake_by_client(
     "/deals/{deal_id}",
     response_model=IntakeRead,
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_roles(UserRole.ADMIN, UserRole.ANALYST, UserRole.REVIEWER, UserRole.VIEWER))],
 )
 def read_intake_by_deal(
     deal_id: int,
     db: DBSession,
+    current_user: CurrentUser,
 ) -> IntakeRead:
     try:
         client, deal = get_intake_by_deal_id(db=db, deal_id=deal_id)
     except IntakeNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
     return _build_intake_response(client=client, deal=deal)
 
@@ -98,11 +92,13 @@ def read_intake_by_deal(
     "/clients/{client_id}",
     response_model=IntakeRead,
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_roles(UserRole.ADMIN, UserRole.ANALYST))],
 )
 def update_intake_case(
     client_id: int,
     payload: IntakeUpdate,
     db: DBSession,
+    current_user: CurrentUser,
     deal_id: int | None = Query(default=None),
 ) -> IntakeRead:
     try:
@@ -110,17 +106,12 @@ def update_intake_case(
             db=db,
             client_id=client_id,
             payload=payload,
+            actor=current_user.email,
             deal_id=deal_id,
         )
     except IntakeNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except IntakeConflictError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(exc),
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
     return _build_intake_response(client=client, deal=deal)

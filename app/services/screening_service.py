@@ -9,8 +9,10 @@ from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.config import settings
 from app.models.client import Client, ClientType
 from app.models.deal import Deal
+from app.models.edd_case import EDDCase
 from app.models.linked_party import LinkedParty, LinkedPartyType
 from app.models.screening import (
     ScreeningCandidate,
@@ -266,17 +268,25 @@ class ScreeningService:
                 db.add(screening_result)
                 db.flush()
 
+                has_high_confidence_match = False
                 for candidate in normalized_result.candidates:
+                    candidate_score = (
+                        Decimal(str(candidate.match_score))
+                        if candidate.match_score is not None
+                        else None
+                    )
+                    if (
+                        candidate_score is not None
+                        and float(candidate_score) >= settings.SCREENING_HIGH_CONFIDENCE_SCORE
+                    ):
+                        has_high_confidence_match = True
+
                     screening_candidate = ScreeningCandidate(
                         screening_result_id=screening_result.id,
                         provider_candidate_id=candidate.provider_candidate_id,
                         provider_entity_id=candidate.provider_entity_id,
                         matched_name=candidate.matched_name,
-                        match_score=(
-                            Decimal(str(candidate.match_score))
-                            if candidate.match_score is not None
-                            else None
-                        ),
+                        match_score=candidate_score,
                         list_name=candidate.list_name,
                         dataset=candidate.dataset,
                         country=candidate.country,
@@ -284,6 +294,27 @@ class ScreeningService:
                         candidate_payload=candidate.candidate_payload,
                     )
                     db.add(screening_candidate)
+
+                if has_high_confidence_match and subject.client_id is not None:
+                    edd_case = EDDCase(
+                        client_id=subject.client_id,
+                        screening_result_id=screening_result.id,
+                        trigger_reason="High-confidence screening match detected.",
+                    )
+                    db.add(edd_case)
+                    db.flush()
+                    record_audit_event(
+                        db=db,
+                        actor=actor,
+                        action="edd_case.created",
+                        entity_type="edd_case",
+                        entity_id=edd_case.id,
+                        metadata_payload={
+                            "trigger_type": "high_confidence_screening_match",
+                            "screening_result_id": screening_result.id,
+                            "client_id": subject.client_id,
+                        },
+                    )
 
                 record_audit_event(
                     db=db,
@@ -401,7 +432,7 @@ class ScreeningService:
             subjects.append(
                 _ScreeningSubjectContext(
                     subject_type=ScreeningSubjectType.LINKED_PARTY,
-                    client_id=None,
+                    client_id=client.id,
                     linked_party_id=linked_party.id,
                     subject_name_snapshot=linked_party.primary_name,
                     query_text=linked_party.primary_name,

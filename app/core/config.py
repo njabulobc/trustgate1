@@ -16,31 +16,25 @@ class Settings(BaseSettings):
     )
 
     CORS_ALLOW_ORIGINS: list[str] = Field(
-            default_factory=lambda: ["http://localhost:5173"],
-            description=(
-                "Allowed CORS origins. In production, set this explicitly via environment "
-                "variables (e.g., CORS_ALLOW_ORIGINS='[\"https://app.example.com\"]' or a "
-                "comma-separated list)."
-            ),
-        )
+        default_factory=lambda: ["http://localhost:5173"],
+        description=(
+            "Allowed CORS origins. In production, set this explicitly via environment "
+            "variables (e.g., CORS_ALLOW_ORIGINS='[\"https://app.example.com\"]' or a "
+            "comma-separated list)."
+        ),
+    )
     CORS_ALLOW_CREDENTIALS: bool = Field(
-            default=False,
-            description="Whether CORS should allow credentials (cookies/Authorization headers).",
-        )
+        default=False,
+        description="Whether CORS should allow credentials (cookies/Authorization headers).",
+    )
 
-    @field_validator("CORS_ALLOW_ORIGINS", mode="before")
-    @classmethod
-    def parse_cors_allow_origins(cls, value):
-        if isinstance(value, str):
-            stripped = value.strip()
-            if stripped.startswith("["):
-                return value
-            return [origin.strip() for origin in value.split(",") if origin.strip()]
-        return value
-
+    JWT_SECRET_KEY: SecretStr = Field(
+        default=SecretStr("dev-change-me"),
+        description="Signing key used to generate and validate JWT tokens.",
+    )
 
     OPENSANCTIONS_API_KEY: SecretStr = Field(
-        ...,
+        default=SecretStr("demo-api-key"),
         description="OpenSanctions API key loaded from environment variables.",
     )
     OPENSANCTIONS_BASE_URL: str = Field(
@@ -66,6 +60,16 @@ class Settings(BaseSettings):
         le=1.0,
         description="Score threshold treated as a high-confidence screening match.",
     )
+
+    @field_validator("CORS_ALLOW_ORIGINS", mode="before")
+    @classmethod
+    def parse_cors_allow_origins(cls, value):
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped.startswith("["):
+                return value
+            return [origin.strip() for origin in value.split(",") if origin.strip()]
+        return value
 
 
 settings = Settings()

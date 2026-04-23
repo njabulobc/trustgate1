@@ -1,16 +1,12 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.api.deps import DBSession
+from app.api.deps import CurrentUser, DBSession, require_roles
 from app.models.screening import ScreeningSubjectType
-from app.schemas.screening import (
-    CandidateDispositionUpdate,
-    ScreeningCandidateRead,
-    ScreeningResultRead,
-    ScreeningRunRequest,
-)
-from app.services.screening_service import (  # type: ignore[import-not-found]
+from app.models.user import UserRole
+from app.schemas.screening import CandidateDispositionUpdate, ScreeningCandidateRead, ScreeningResultRead, ScreeningRunRequest
+from app.services.screening_service import (
     ScreeningExecutionError,
     ScreeningNotFoundError,
     ScreeningPersistenceError,
@@ -27,37 +23,20 @@ router = APIRouter(prefix="/screening", tags=["screening"])
     "/run",
     response_model=list[ScreeningResultRead],
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_roles(UserRole.ADMIN, UserRole.ANALYST, UserRole.REVIEWER))],
 )
-async def run_screening(
-    payload: ScreeningRunRequest,
-    db: DBSession,
-) -> list[ScreeningResultRead]:
+async def run_screening(payload: ScreeningRunRequest, db: DBSession, current_user: CurrentUser) -> list[ScreeningResultRead]:
     if payload.subject_type != ScreeningSubjectType.CLIENT or payload.client_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Screening runs must be initiated for a primary client in the current MVP.",
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Screening runs must be initiated for a primary client in the current MVP.")
 
     try:
-        screening_results = await run_screening_for_client(
-            db=db,
-            client_id=payload.client_id,
-        )
+        screening_results = await run_screening_for_client(db=db, client_id=payload.client_id, actor=current_user.email)
     except ScreeningValidationError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except ScreeningExecutionError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=str(exc),
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
     except ScreeningPersistenceError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(exc),
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
     return [ScreeningResultRead.model_validate(item) for item in screening_results]
 
@@ -66,21 +45,13 @@ async def run_screening(
     "/clients/{client_id}",
     response_model=list[ScreeningResultRead],
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_roles(UserRole.ADMIN, UserRole.ANALYST, UserRole.REVIEWER, UserRole.VIEWER))],
 )
-def list_client_screening_results(
-    client_id: int,
-    db: DBSession,
-) -> list[ScreeningResultRead]:
+def list_client_screening_results(client_id: int, db: DBSession, current_user: CurrentUser) -> list[ScreeningResultRead]:
     try:
-        screening_results = list_screening_results_for_client(
-            db=db,
-            client_id=client_id,
-        )
+        screening_results = list_screening_results_for_client(db=db, client_id=client_id)
     except ScreeningValidationError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     return [ScreeningResultRead.model_validate(item) for item in screening_results]
 
@@ -89,27 +60,19 @@ def list_client_screening_results(
     "/candidates/{candidate_id}/disposition",
     response_model=ScreeningCandidateRead,
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_roles(UserRole.ADMIN, UserRole.ANALYST, UserRole.REVIEWER))],
 )
 def review_screening_candidate(
     candidate_id: int,
     payload: CandidateDispositionUpdate,
     db: DBSession,
+    current_user: CurrentUser,
 ) -> ScreeningCandidateRead:
     try:
-        candidate = update_candidate_disposition(
-            db=db,
-            candidate_id=candidate_id,
-            payload=payload,
-        )
+        candidate = update_candidate_disposition(db=db, candidate_id=candidate_id, payload=payload, actor=current_user.email)
     except ScreeningNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except ScreeningPersistenceError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(exc),
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
     return ScreeningCandidateRead.model_validate(candidate)
