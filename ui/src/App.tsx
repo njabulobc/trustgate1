@@ -128,6 +128,13 @@ export default function App() {
     return severity === 'high' || severity === 'critical';
   });
 
+  useEffect(() => {
+    if (selectedCandidateId && !selectedCandidate) {
+      setSelectedCandidateId(null);
+      setDispositionReason('');
+    }
+  }, [selectedCandidateId, selectedCandidate]);
+
   async function handleCreateIntake(event: FormEvent) {
     event.preventDefault();
     if (!clientName || !dealRef || !propertyLocation || Number(transactionValue) <= 0) {
@@ -156,6 +163,9 @@ export default function App() {
       };
       const created = await api.createIntake(payload);
       setIntake(created);
+      setScreeningResults([]);
+      setSelectedCandidateId(null);
+      setDispositionReason('');
       setIntakeState({ loading: false, error: null, success: `Created client_id=${created.client.id} and deal_id=${created.deal.id}.` });
     } catch (error) {
       setIntakeState({ loading: false, error: (error as Error).message, success: null });
@@ -201,6 +211,8 @@ export default function App() {
     try {
       const results = await api.runScreening(clientId);
       setScreeningResults(results);
+      setSelectedCandidateId(null);
+      setDispositionReason('');
       setScreeningState({ loading: false, error: null, success: `Screening complete with ${results.length} result set(s).` });
     } catch (error) {
       setScreeningState({ loading: false, error: (error as Error).message, success: null });
@@ -209,7 +221,7 @@ export default function App() {
 
   async function handleDispositionUpdate(event: FormEvent) {
     event.preventDefault();
-    if (!selectedCandidateId) {
+    if (!selectedCandidateId || !selectedCandidate) {
       setScreeningState({ loading: false, error: 'Pick a candidate_id to update disposition.', success: null });
       return;
     }
@@ -219,8 +231,7 @@ export default function App() {
     }
     setScreeningState({ loading: true, error: null, success: null });
     try {
-      const candidate = await api.patchCandidateDisposition(selectedCandidateId, candidateDisposition, dispositionReason || undefined);
-      if (clientId) {
+        const candidate = await api.patchCandidateDisposition(selectedCandidate.id, candidateDisposition, dispositionReason || undefined);      if (clientId) {
         const refreshed = await api.getScreeningByClientId(clientId);
         setScreeningResults(refreshed);
       }
