@@ -377,16 +377,24 @@ export default function App() {
                   {result.candidates.map((candidate) => (
                     <li key={candidate.id}>
                       <button className="w-full rounded border border-slate-200 px-2 py-1 text-left hover:bg-slate-50" onClick={() => setSelectedCandidateId(candidate.id)}>
+                        {(() => {
+                          const payload = candidate.candidate_payload as Record<string, unknown> | null;
+                          const topicsText = extractTopics(candidate).join(', ');
+                          const notesOrTopics = candidate.notes ?? (topicsText || 'n/a');
+                          const candidateAlerts = extractPolicyAlerts(candidate);
+                          return (
+                            <>
                         <p>candidate_id={candidate.id} · {candidate.matched_name} · {candidate.disposition}</p>
                         <p className="mt-1 text-xs text-slate-600">
                           dataset: {candidate.dataset ?? 'n/a'} · match_score: {candidate.match_score ?? 'n/a'} · country: {candidate.country ?? 'n/a'}
                         </p>
-                        <p className="mt-1 text-xs text-slate-600">notes/topics: {(candidate.notes ?? extractTopics(candidate).join(', ')) || 'n/a'}</p>                        <p className="mt-1 text-xs text-slate-500">
-                          payload excerpt: schema={String((candidate.candidate_payload as Record<string, unknown> | null)?.schema ?? 'n/a')} · id={String((candidate.candidate_payload as Record<string, unknown> | null)?.id ?? 'n/a')}
+                        <p className="mt-1 text-xs text-slate-600">notes/topics: {notesOrTopics}</p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          payload excerpt: schema={String(payload?.schema ?? 'n/a')} · id={String(payload?.id ?? 'n/a')}
                         </p>
-                        {extractPolicyAlerts(candidate).length > 0 && (
+                        {candidateAlerts.length > 0 && (
                           <div className="mt-2 space-y-1">
-                            {extractPolicyAlerts(candidate).map((alert, index) => (
+                            {candidateAlerts.map((alert, index) => (
                               <div key={`${candidate.id}-alert-${index}`} className="text-xs">
                                 <span className={severityBadgeClass(alert.severity)}>{alert.severity.toUpperCase()}</span>
                                 <span className="ml-2 text-slate-700">{alert.source ? `${alert.source}: ` : ''}{alert.rationale ?? 'No rationale provided by backend policy output.'}</span>
@@ -394,6 +402,9 @@ export default function App() {
                             ))}
                           </div>
                         )}
+                            </>
+                          );
+                        })()}
                       </button>
                     </li>
                   ))}
