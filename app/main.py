@@ -3,11 +3,13 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes.intake import router as intake_router
 from app.api.routes.relationships import router as relationships_router
 from app.api.routes.risk import router as risk_router
 from app.api.routes.screening import router as screening_router
+from app.core.config import settings
 from app.core.database import Base, engine
 
 # Ensure all MVP models are imported before metadata.create_all runs.
@@ -32,6 +34,14 @@ app = FastAPI(
         "linked parties, screening, risk assessment, and auditability."
     ),
     lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ALLOW_ORIGINS,
+    allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(intake_router)
