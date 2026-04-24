@@ -111,15 +111,22 @@ class AuthService:
         return db.execute(stmt).scalar_one_or_none()
 
     @classmethod
-    def ensure_seed_admin(cls, db: Session) -> None:
-        stmt = select(User).where(User.email == "admin@trustgate.local")
+    def ensure_seed_admin(cls, db: Session, *, email: str | None, password: str | None) -> None:
+        if not email and not password:
+            return
+        if not email or not password:
+            raise AuthServiceError(
+                "SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD must both be set to seed an admin user."
+            )
+
+        stmt = select(User).where(User.email == email)
         existing = db.execute(stmt).scalar_one_or_none()
         if existing is not None:
             return
         user = User(
-            email="admin@trustgate.local",
+            email=email,
             full_name="System Admin",
-            password_hash=cls.hash_password("trustgate-admin"),
+            password_hash=cls.hash_password(password),
             role=UserRole.ADMIN,
             is_active=True,
         )

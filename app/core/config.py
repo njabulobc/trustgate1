@@ -29,8 +29,22 @@ class Settings(BaseSettings):
     )
 
     JWT_SECRET_KEY: SecretStr = Field(
-        default=SecretStr("dev-change-me"),
+        ...,
         description="Signing key used to generate and validate JWT tokens.",
+    )
+    SEED_ADMIN_EMAIL: str | None = Field(
+        default=None,
+        description=(
+            "Optional bootstrap admin email. When unset, automatic seed admin creation "
+            "is disabled."
+        ),
+    )
+    SEED_ADMIN_PASSWORD: SecretStr | None = Field(
+        default=None,
+        description=(
+            "Optional bootstrap admin password. Must be set together with "
+            "SEED_ADMIN_EMAIL."
+        ),
     )
 
     OPENSANCTIONS_API_KEY: SecretStr = Field(
@@ -69,6 +83,26 @@ class Settings(BaseSettings):
             if stripped.startswith("["):
                 return value
             return [origin.strip() for origin in value.split(",") if origin.strip()]
+        return value
+
+    @field_validator("JWT_SECRET_KEY")
+    @classmethod
+    def validate_jwt_secret_key(cls, value: SecretStr) -> SecretStr:
+        raw_value = value.get_secret_value().strip()
+        if not raw_value or raw_value == "dev-change-me":
+            raise ValueError("JWT_SECRET_KEY must be explicitly set to a non-default value.")
+        return SecretStr(raw_value)
+
+    @field_validator("SEED_ADMIN_PASSWORD")
+    @classmethod
+    def validate_seed_admin_password(cls, value: SecretStr | None, info):
+        email = info.data.get("SEED_ADMIN_EMAIL")
+        if email and value is None:
+            raise ValueError("SEED_ADMIN_PASSWORD must be set when SEED_ADMIN_EMAIL is configured.")
+        if value is not None and not email:
+            raise ValueError("SEED_ADMIN_EMAIL must be set when SEED_ADMIN_PASSWORD is configured.")
+        if value is not None and value.get_secret_value() == "trustgate-admin":
+            raise ValueError("SEED_ADMIN_PASSWORD cannot use known default credentials.")
         return value
 
 

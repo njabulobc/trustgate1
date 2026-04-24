@@ -36,7 +36,15 @@ from app.services.auth_service import AuthService
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     with SessionLocal() as db:
-        AuthService.ensure_seed_admin(db)
+        AuthService.ensure_seed_admin(
+            db,
+            email=settings.SEED_ADMIN_EMAIL,
+            password=(
+                settings.SEED_ADMIN_PASSWORD.get_secret_value()
+                if settings.SEED_ADMIN_PASSWORD is not None
+                else None
+            ),
+        )
     yield
 
 
