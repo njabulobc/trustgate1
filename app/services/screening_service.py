@@ -441,7 +441,11 @@ class ScreeningService:
                     audit_metadata=failure_metadata,
                 )
 
-        if proposed_status in ScreeningService._PEP_CASE_VERIFICATION_GATED_STATES and (
+        should_enforce_verification_gate = (
+            status is not None
+            and proposed_status in ScreeningService._PEP_CASE_VERIFICATION_GATED_STATES
+        )
+        if should_enforce_verification_gate and (
             proposed_senior_approval_status != VerificationStatus.VERIFIED
             or proposed_source_of_wealth_status != VerificationStatus.VERIFIED
             or proposed_source_of_funds_status != VerificationStatus.VERIFIED
