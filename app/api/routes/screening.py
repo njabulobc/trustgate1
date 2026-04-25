@@ -15,6 +15,7 @@ from app.schemas.screening import (
 from app.services.screening_service import (  # type: ignore[import-not-found]
     ensure_pep_case,
     list_pep_cases_for_client,
+    PepCaseTransitionValidationError,
     ScreeningExecutionError,
     ScreeningNotFoundError,
     ScreeningPersistenceError,
@@ -165,6 +166,15 @@ def patch_pep_case(
         )
     except ScreeningNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except PepCaseTransitionValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "error_code": exc.error_code,
+                "message": str(exc),
+                "audit_metadata": exc.audit_metadata,
+            },
+        ) from exc
     except ScreeningPersistenceError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 

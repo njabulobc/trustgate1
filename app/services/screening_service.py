@@ -59,6 +59,21 @@ class ScreeningValidationError(ScreeningServiceError):
     """Raised when screening input or entity relationships are invalid."""
 
 
+class PepCaseTransitionValidationError(ScreeningValidationError):
+    """Raised when a PEP case update violates transition control policies."""
+
+    def __init__(
+        self,
+        *,
+        message: str,
+        error_code: str,
+        audit_metadata: dict[str, Any],
+    ) -> None:
+        super().__init__(message)
+        self.error_code = error_code
+        self.audit_metadata = audit_metadata
+
+
 class ScreeningPersistenceError(ScreeningServiceError):
     """Raised when screening data cannot be persisted."""
 
@@ -68,6 +83,26 @@ class ScreeningExecutionError(ScreeningServiceError):
 
 
 class ScreeningService:
+    _PEP_CASE_STATUS_TRANSITIONS: dict[PepCaseStatus, set[PepCaseStatus]] = {
+        PepCaseStatus.OPEN: {PepCaseStatus.IN_REVIEW, PepCaseStatus.REJECTED},
+        PepCaseStatus.IN_REVIEW: {
+            PepCaseStatus.SENIOR_APPROVED,
+            PepCaseStatus.REJECTED,
+            PepCaseStatus.CLOSED,
+        },
+        PepCaseStatus.SENIOR_APPROVED: {PepCaseStatus.CLOSED},
+        PepCaseStatus.REJECTED: {PepCaseStatus.IN_REVIEW},
+        PepCaseStatus.CLOSED: set(),
+    }
+    _PEP_CASE_CLOSURE_STATES: set[PepCaseStatus] = {
+        PepCaseStatus.REJECTED,
+        PepCaseStatus.CLOSED,
+    }
+    _PEP_CASE_VERIFICATION_GATED_STATES: set[PepCaseStatus] = {
+        PepCaseStatus.SENIOR_APPROVED,
+        PepCaseStatus.CLOSED,
+    }
+
     @staticmethod
     def classify_candidate(
         candidate_payload: dict[str, Any] | None,
@@ -344,6 +379,123 @@ class ScreeningService:
         pep_case = db.execute(stmt).scalar_one_or_none()
         if pep_case is None:
             raise ScreeningNotFoundError(f"PEP case with id={pep_case_id} was not found.")
+
+        current_status = pep_case.status
+        proposed_status = status if status is not None else pep_case.status
+        proposed_senior_approval_status = (
+            senior_approval_status
+            if senior_approval_status is not None
+            else pep_case.senior_approval_status
+        )
+        proposed_source_of_wealth_status = (
+            source_of_wealth_status
+            if source_of_wealth_status is not None
+            else pep_case.source_of_wealth_status
+        )
+        proposed_source_of_funds_status = (
+            source_of_funds_status
+            if source_of_funds_status is not None
+            else pep_case.source_of_funds_status
+        )
+        proposed_closure_evidence = (
+            closure_evidence if closure_evidence is not None else pep_case.closure_evidence
+        )
+
+        transition_audit_context = {
+            "previous_status": current_status.value,
+            "requested_status": proposed_status.value,
+            "proposed_senior_approval_status": proposed_senior_approval_status.value,
+            "proposed_source_of_wealth_status": proposed_source_of_wealth_status.value,
+            "proposed_source_of_funds_status": proposed_source_of_funds_status.value,
+            "closure_evidence_present": bool(proposed_closure_evidence),
+        }
+
+        if proposed_status != current_status:
+            allowed_statuses = ScreeningService._PEP_CASE_STATUS_TRANSITIONS.get(
+                current_status,
+                set(),
+            )
+            if proposed_status not in allowed_statuses:
+                failure_metadata = {
+                    **transition_audit_context,
+                    "allowed_next_statuses": sorted(
+                        allowed_status.value for allowed_status in allowed_statuses
+                    ),
+                    "validation_error_code": "invalid_status_transition",
+                }
+                record_audit_event(
+                    db=db,
+                    actor=actor,
+                    action="pep_case.update_rejected",
+                    entity_type="pep_case",
+                    entity_id=pep_case.id,
+                    metadata_payload=failure_metadata,
+                )
+                db.commit()
+                raise PepCaseTransitionValidationError(
+                    message=(
+                        f"Cannot transition PEP case from '{current_status.value}' "
+                        f"to '{proposed_status.value}'."
+                    ),
+                    error_code="invalid_status_transition",
+                    audit_metadata=failure_metadata,
+                )
+
+        should_enforce_verification_gate = (
+            status is not None
+            and proposed_status in ScreeningService._PEP_CASE_VERIFICATION_GATED_STATES
+        )
+        if should_enforce_verification_gate and (
+            proposed_senior_approval_status != VerificationStatus.VERIFIED
+            or proposed_source_of_wealth_status != VerificationStatus.VERIFIED
+            or proposed_source_of_funds_status != VerificationStatus.VERIFIED
+        ):
+            failure_metadata = {
+                **transition_audit_context,
+                "validation_error_code": "verification_controls_not_satisfied",
+            }
+            record_audit_event(
+                db=db,
+                actor=actor,
+                action="pep_case.update_rejected",
+                entity_type="pep_case",
+                entity_id=pep_case.id,
+                metadata_payload=failure_metadata,
+            )
+            db.commit()
+            raise PepCaseTransitionValidationError(
+                message=(
+                    "Cannot move a PEP case to 'senior_approved' or 'closed' until senior "
+                    "approval, source of wealth, and source of funds are verified."
+                ),
+                error_code="verification_controls_not_satisfied",
+                audit_metadata=failure_metadata,
+            )
+
+        if (
+            proposed_status in ScreeningService._PEP_CASE_CLOSURE_STATES
+            and not proposed_closure_evidence
+        ):
+            failure_metadata = {
+                **transition_audit_context,
+                "validation_error_code": "closure_evidence_required",
+            }
+            record_audit_event(
+                db=db,
+                actor=actor,
+                action="pep_case.update_rejected",
+                entity_type="pep_case",
+                entity_id=pep_case.id,
+                metadata_payload=failure_metadata,
+            )
+            db.commit()
+            raise PepCaseTransitionValidationError(
+                message=(
+                    "Cannot move a PEP case into a closure state without closure evidence."
+                ),
+                error_code="closure_evidence_required",
+                audit_metadata=failure_metadata,
+            )
 
         if status is not None:
             pep_case.status = status
