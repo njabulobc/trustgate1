@@ -47,6 +47,18 @@ class _ScreeningSubjectContext:
     provider_input: ScreeningSubjectInput
 
 
+@dataclass(frozen=True, slots=True)
+class _ClassificationPolicyPack:
+    name: str
+    provider_score_weight: float
+    list_quality_weight: float
+    concordance_weight: float
+    pep_threshold: float
+    rca_threshold: float
+    false_positive_score_cap: float
+    minimum_topic_signal: float
+
+
 class ScreeningServiceError(Exception):
     """Base exception for screening service failures."""
 
@@ -68,43 +80,304 @@ class ScreeningExecutionError(ScreeningServiceError):
 
 
 class ScreeningService:
+    _CLASSIFICATION_POLICY_PACKS: dict[str, _ClassificationPolicyPack] = {
+        "default": _ClassificationPolicyPack(
+            name="default",
+            provider_score_weight=0.45,
+            list_quality_weight=0.20,
+            concordance_weight=0.35,
+            pep_threshold=0.67,
+            rca_threshold=0.56,
+            false_positive_score_cap=0.52,
+            minimum_topic_signal=0.5,
+        ),
+        "enhanced_due_diligence": _ClassificationPolicyPack(
+            name="enhanced_due_diligence",
+            provider_score_weight=0.40,
+            list_quality_weight=0.20,
+            concordance_weight=0.40,
+            pep_threshold=0.62,
+            rca_threshold=0.52,
+            false_positive_score_cap=0.50,
+            minimum_topic_signal=0.45,
+        ),
+    }
+
     @staticmethod
     def classify_candidate(
+        subject: _ScreeningSubjectContext,
+        *,
+        match_score: float | None,
+        matched_name: str,
+        list_name: str | None,
+        dataset: str | None,
+        country: str | None,
         candidate_payload: dict[str, Any] | None,
     ) -> tuple[MatchCategory, dict[str, Any]]:
-        topics: list[str] = []
-        if isinstance(candidate_payload, dict):
-            raw_topics = candidate_payload.get("topics")
-            if isinstance(raw_topics, list):
-                topics = [str(topic).lower() for topic in raw_topics]
+        topics = ScreeningService._extract_topics(candidate_payload)
+        policy_pack = ScreeningService._resolve_policy_pack(candidate_payload=candidate_payload, dataset=dataset)
+        provider_score_signal = ScreeningService._normalize_match_score(match_score)
+        list_quality_signal = ScreeningService._score_list_quality(
+            topics=topics,
+            dataset=dataset,
+            list_name=list_name,
+        )
+        concordance_breakdown = ScreeningService._score_concordance(
+            subject=subject,
+            candidate_payload=candidate_payload,
+            matched_name=matched_name,
+            country=country,
+        )
+        concordance_signal = concordance_breakdown["score"]
 
+        weighted_score = (
+            provider_score_signal * policy_pack.provider_score_weight
+            + list_quality_signal * policy_pack.list_quality_weight
+            + concordance_signal * policy_pack.concordance_weight
+        )
+
+        has_pep_topic = "role.pep" in topics
+        has_rca_topic = "role.rca" in topics
+        candidate_type = "pep" if has_pep_topic else "rca" if has_rca_topic else "standard"
+
+        false_positive_reduction = ScreeningService._apply_false_positive_reduction(
+            policy_pack=policy_pack,
+            weighted_score=weighted_score,
+            provider_score_signal=provider_score_signal,
+            concordance_breakdown=concordance_breakdown,
+            has_policy_topic=has_pep_topic or has_rca_topic,
+        )
+
+        match_category = MatchCategory.STANDARD
+        if not false_positive_reduction["applied"]:
+            if has_pep_topic and list_quality_signal >= policy_pack.minimum_topic_signal and weighted_score >= policy_pack.pep_threshold:
+                match_category = MatchCategory.PEP
+            elif has_rca_topic and list_quality_signal >= policy_pack.minimum_topic_signal and weighted_score >= policy_pack.rca_threshold:
+                match_category = MatchCategory.RCA
+
+        explainability = [
+            {
+                "factor": "provider_score",
+                "weight": policy_pack.provider_score_weight,
+                "signal": provider_score_signal,
+                "contribution": provider_score_signal * policy_pack.provider_score_weight,
+            },
+            {
+                "factor": "list_quality",
+                "weight": policy_pack.list_quality_weight,
+                "signal": list_quality_signal,
+                "contribution": list_quality_signal * policy_pack.list_quality_weight,
+            },
+            {
+                "factor": "name_dob_country_concordance",
+                "weight": policy_pack.concordance_weight,
+                "signal": concordance_signal,
+                "contribution": concordance_signal * policy_pack.concordance_weight,
+                "details": concordance_breakdown,
+            },
+        ]
+
+        alerts: list[dict[str, str]] = []
+        if match_category == MatchCategory.PEP:
+            alerts.append(
+                {
+                    "policy": "pep_detection",
+                    "severity": "high",
+                    "rationale": "Multi-factor scoring indicates a high-confidence PEP match requiring EDD and senior approval.",
+                }
+            )
+        elif match_category == MatchCategory.RCA:
+            alerts.append(
+                {
+                    "policy": "rca_detection",
+                    "severity": "medium",
+                    "rationale": "Multi-factor scoring indicates an RCA match requiring RCA-specific review controls.",
+                }
+            )
+        elif candidate_type in {"pep", "rca"} and false_positive_reduction["applied"]:
+            alerts.append(
+                {
+                    "policy": "false_positive_reduction",
+                    "severity": "low",
+                    "rationale": "Candidate contains a policy topic but was downgraded due to low-confidence identity concordance.",
+                }
+            )
+
+        policy_flags = {
+            "version": "candidate_policy_flags.v2",
+            "policy_pack": policy_pack.name,
+            "candidate_type_signal": candidate_type,
+            "topics": topics,
+            "signals": {
+                "provider_score": provider_score_signal,
+                "list_quality": list_quality_signal,
+                "name_dob_country_concordance": concordance_signal,
+            },
+            "weights": {
+                "provider_score": policy_pack.provider_score_weight,
+                "list_quality": policy_pack.list_quality_weight,
+                "name_dob_country_concordance": policy_pack.concordance_weight,
+            },
+            "thresholds": {
+                "pep_threshold": policy_pack.pep_threshold,
+                "rca_threshold": policy_pack.rca_threshold,
+                "false_positive_score_cap": policy_pack.false_positive_score_cap,
+                "minimum_topic_signal": policy_pack.minimum_topic_signal,
+            },
+            "weighted_score": weighted_score,
+            "false_positive_reduction": false_positive_reduction,
+            "classification": {
+                "category": match_category.value,
+                "decision_basis": "multi_factor_policy_pack",
+            },
+            "explainability": explainability,
+            "alerts": alerts,
+        }
+
+        return match_category, policy_flags
+
+    @staticmethod
+    def _extract_topics(candidate_payload: dict[str, Any] | None) -> list[str]:
+        if not isinstance(candidate_payload, dict):
+            return []
+        raw_topics = candidate_payload.get("topics")
+        if not isinstance(raw_topics, list):
+            return []
+        return sorted({str(topic).lower() for topic in raw_topics if topic is not None})
+
+    @staticmethod
+    def _resolve_policy_pack(
+        *,
+        candidate_payload: dict[str, Any] | None,
+        dataset: str | None,
+    ) -> _ClassificationPolicyPack:
+        policy_pack_name: str | None = None
+        if isinstance(candidate_payload, dict):
+            metadata = candidate_payload.get("metadata")
+            if isinstance(metadata, dict):
+                explicit_pack = metadata.get("policy_pack")
+                if isinstance(explicit_pack, str):
+                    policy_pack_name = explicit_pack.strip().lower()
+        if not policy_pack_name and dataset and "pep" in dataset.lower():
+            policy_pack_name = "enhanced_due_diligence"
+        return ScreeningService._CLASSIFICATION_POLICY_PACKS.get(
+            policy_pack_name or "default",
+            ScreeningService._CLASSIFICATION_POLICY_PACKS["default"],
+        )
+
+    @staticmethod
+    def _normalize_match_score(match_score: float | None) -> float:
+        if match_score is None:
+            return 0.0
+        return max(0.0, min(float(match_score), 1.0))
+
+    @staticmethod
+    def _score_list_quality(
+        *,
+        topics: list[str],
+        dataset: str | None,
+        list_name: str | None,
+    ) -> float:
+        score = 0.0
         if "role.pep" in topics:
-            return (
-                MatchCategory.PEP,
-                {
-                    "alerts": [
-                        {
-                            "policy": "pep_detection",
-                            "severity": "high",
-                            "rationale": "Candidate tagged as role.pep; EDD and senior approval controls are required.",
-                        }
-                    ]
-                },
-            )
-        if "role.rca" in topics:
-            return (
-                MatchCategory.RCA,
-                {
-                    "alerts": [
-                        {
-                            "policy": "rca_detection",
-                            "severity": "medium",
-                            "rationale": "Candidate tagged as role.rca; apply RCA-specific review workflow.",
-                        }
-                    ]
-                },
-            )
-        return MatchCategory.STANDARD, {"alerts": []}
+            score = max(score, 1.0)
+        elif "role.rca" in topics:
+            score = max(score, 0.8)
+
+        provenance_text = " ".join(filter(None, [dataset, list_name])).lower()
+        if any(keyword in provenance_text for keyword in ("pep", "sanctions", "watchlist", "public_office")):
+            score = max(score, 0.75)
+        return score
+
+    @staticmethod
+    def _score_concordance(
+        *,
+        subject: _ScreeningSubjectContext,
+        candidate_payload: dict[str, Any] | None,
+        matched_name: str,
+        country: str | None,
+    ) -> dict[str, Any]:
+        properties: dict[str, Any] = {}
+        if isinstance(candidate_payload, dict):
+            raw_properties = candidate_payload.get("properties")
+            if isinstance(raw_properties, dict):
+                properties = raw_properties
+
+        subject_name = subject.provider_input.primary_name.strip().lower()
+        matched_name_tokens = set((matched_name or "").strip().lower().split())
+        subject_name_tokens = set(subject_name.split())
+
+        name_exact = bool(subject_name and matched_name and subject_name == matched_name.strip().lower())
+        shared_tokens = len(matched_name_tokens & subject_name_tokens)
+        name_signal = 1.0 if name_exact else min(1.0, shared_tokens / 2) if shared_tokens else 0.0
+
+        candidate_birth_dates = ScreeningService._extract_property_values(properties, "birthDate")
+        dob_input = (subject.provider_input.date_of_birth or "").strip()
+        dob_signal = 1.0 if dob_input and dob_input in candidate_birth_dates else 0.0
+
+        candidate_countries = set(
+            value.lower()
+            for key in ("country", "nationality", "jurisdiction")
+            for value in ScreeningService._extract_property_values(properties, key)
+        )
+        if country:
+            candidate_countries.add(country.lower())
+        subject_country = (subject.provider_input.country or subject.provider_input.nationality or "").strip().lower()
+        country_signal = 1.0 if subject_country and subject_country in candidate_countries else 0.0
+
+        score = name_signal * 0.6 + dob_signal * 0.25 + country_signal * 0.15
+
+        return {
+            "score": score,
+            "name_signal": name_signal,
+            "name_exact": name_exact,
+            "dob_signal": dob_signal,
+            "country_signal": country_signal,
+            "candidate_birth_dates": candidate_birth_dates,
+            "candidate_countries": sorted(candidate_countries),
+        }
+
+    @staticmethod
+    def _extract_property_values(properties: dict[str, Any], key: str) -> list[str]:
+        value = properties.get(key)
+        if isinstance(value, list):
+            return [str(entry).strip() for entry in value if entry]
+        if isinstance(value, str) and value:
+            return [value.strip()]
+        return []
+
+    @staticmethod
+    def _apply_false_positive_reduction(
+        *,
+        policy_pack: _ClassificationPolicyPack,
+        weighted_score: float,
+        provider_score_signal: float,
+        concordance_breakdown: dict[str, Any],
+        has_policy_topic: bool,
+    ) -> dict[str, Any]:
+        reasons: list[str] = []
+        if has_policy_topic and weighted_score <= policy_pack.false_positive_score_cap:
+            reasons.append("low_weighted_score_for_policy_topic")
+        if provider_score_signal < 0.45:
+            reasons.append("provider_score_below_floor")
+        if concordance_breakdown["name_signal"] < 0.5 and concordance_breakdown["dob_signal"] == 0:
+            reasons.append("weak_name_and_dob_concordance")
+        if (
+            has_policy_topic
+            and concordance_breakdown["name_signal"] < 0.5
+            and concordance_breakdown["country_signal"] == 0
+        ):
+            reasons.append("topic_without_identity_concordance")
+
+        high_confidence_override = provider_score_signal >= 0.9 and (
+            concordance_breakdown["name_exact"] or concordance_breakdown["dob_signal"] == 1.0
+        )
+        applied = bool(reasons) and not high_confidence_override
+        return {
+            "applied": applied,
+            "rules_triggered": reasons,
+            "high_confidence_override": high_confidence_override,
+        }
 
     @staticmethod
     async def run_screening_for_client(
@@ -440,7 +713,13 @@ class ScreeningService:
 
                 for candidate in normalized_result.candidates:
                     match_category, policy_flags = ScreeningService.classify_candidate(
-                        candidate.candidate_payload
+                        subject,
+                        match_score=candidate.match_score,
+                        matched_name=candidate.matched_name,
+                        list_name=candidate.list_name,
+                        dataset=candidate.dataset,
+                        country=candidate.country,
+                        candidate_payload=candidate.candidate_payload,
                     )
                     screening_candidate = ScreeningCandidate(
                         screening_result_id=screening_result.id,

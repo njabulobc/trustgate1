@@ -37,7 +37,13 @@ class ScreeningCandidateRead(BaseModel):
     country: str | None
     notes: str | None
     match_category: MatchCategory
-    policy_flags: dict[str, Any] | None
+    policy_flags: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Deterministic multi-factor policy metadata used to explain PEP/RCA classification, "
+            "including weighted signals, thresholds, false-positive reduction decisions, and alerts."
+        ),
+    )
     disposition: CandidateDisposition
     disposition_reason: str | None
     reviewed_at: datetime | None
