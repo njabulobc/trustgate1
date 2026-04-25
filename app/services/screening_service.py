@@ -13,10 +13,15 @@ from app.models.client import Client, ClientType
 from app.models.deal import Deal
 from app.models.linked_party import LinkedParty, LinkedPartyType
 from app.models.screening import (
+    CandidateDisposition,
+    MatchCategory,
+    PepCase,
+    PepCaseStatus,
     ScreeningCandidate,
     ScreeningResult,
     ScreeningStatus,
     ScreeningSubjectType,
+    VerificationStatus,
 )
 from app.schemas.screening import CandidateDispositionUpdate
 from app.services.audit_service import record_audit_event
@@ -63,6 +68,44 @@ class ScreeningExecutionError(ScreeningServiceError):
 
 
 class ScreeningService:
+    @staticmethod
+    def classify_candidate(
+        candidate_payload: dict[str, Any] | None,
+    ) -> tuple[MatchCategory, dict[str, Any]]:
+        topics: list[str] = []
+        if isinstance(candidate_payload, dict):
+            raw_topics = candidate_payload.get("topics")
+            if isinstance(raw_topics, list):
+                topics = [str(topic).lower() for topic in raw_topics]
+
+        if "role.pep" in topics:
+            return (
+                MatchCategory.PEP,
+                {
+                    "alerts": [
+                        {
+                            "policy": "pep_detection",
+                            "severity": "high",
+                            "rationale": "Candidate tagged as role.pep; EDD and senior approval controls are required.",
+                        }
+                    ]
+                },
+            )
+        if "role.rca" in topics:
+            return (
+                MatchCategory.RCA,
+                {
+                    "alerts": [
+                        {
+                            "policy": "rca_detection",
+                            "severity": "medium",
+                            "rationale": "Candidate tagged as role.rca; apply RCA-specific review workflow.",
+                        }
+                    ]
+                },
+            )
+        return MatchCategory.STANDARD, {"alerts": []}
+
     @staticmethod
     async def run_screening_for_client(
         db: Session,
@@ -219,7 +262,136 @@ class ScreeningService:
             raise
 
         db.refresh(candidate)
+        if candidate.match_category in (MatchCategory.PEP, MatchCategory.RCA) and payload.disposition in (
+            CandidateDisposition.CONFIRMED_MATCH,
+            CandidateDisposition.NEEDS_EDD,
+        ):
+            ScreeningService.ensure_pep_case(
+                db=db,
+                screening_candidate_id=candidate.id,
+                actor=actor,
+            )
         return candidate
+
+    @staticmethod
+    def ensure_pep_case(
+        db: Session,
+        screening_candidate_id: int,
+        *,
+        actor: str = "demo_user",
+    ) -> PepCase:
+        candidate = ScreeningService._get_candidate_or_raise(
+            db=db,
+            candidate_id=screening_candidate_id,
+        )
+        if candidate.match_category not in (MatchCategory.PEP, MatchCategory.RCA):
+            raise ScreeningValidationError(
+                "PEP case management is only available for PEP/RCA candidates."
+            )
+
+        stmt = select(PepCase).where(PepCase.screening_candidate_id == screening_candidate_id)
+        pep_case = db.execute(stmt).scalar_one_or_none()
+        if pep_case is not None:
+            return pep_case
+
+        pep_case = PepCase(
+            screening_candidate_id=screening_candidate_id,
+            status=PepCaseStatus.IN_REVIEW,
+            senior_approval_status=VerificationStatus.PENDING,
+            source_of_wealth_status=VerificationStatus.PENDING,
+            source_of_funds_status=VerificationStatus.PENDING,
+            enhanced_monitoring=True,
+        )
+        db.add(pep_case)
+        try:
+            db.flush()
+            record_audit_event(
+                db=db,
+                actor=actor,
+                action="pep_case.created",
+                entity_type="pep_case",
+                entity_id=pep_case.id,
+                metadata_payload={
+                    "screening_candidate_id": screening_candidate_id,
+                    "match_category": candidate.match_category.value,
+                },
+            )
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            raise ScreeningPersistenceError("Unable to persist pep case.") from exc
+        except Exception:
+            db.rollback()
+            raise
+        db.refresh(pep_case)
+        return pep_case
+
+    @staticmethod
+    def update_pep_case(
+        db: Session,
+        pep_case_id: int,
+        *,
+        status: PepCaseStatus | None = None,
+        senior_approval_status: VerificationStatus | None = None,
+        source_of_wealth_status: VerificationStatus | None = None,
+        source_of_funds_status: VerificationStatus | None = None,
+        enhanced_monitoring: bool | None = None,
+        monitoring_notes: str | None = None,
+        closure_evidence: dict[str, Any] | None = None,
+        actor: str = "demo_user",
+    ) -> PepCase:
+        stmt = select(PepCase).where(PepCase.id == pep_case_id)
+        pep_case = db.execute(stmt).scalar_one_or_none()
+        if pep_case is None:
+            raise ScreeningNotFoundError(f"PEP case with id={pep_case_id} was not found.")
+
+        if status is not None:
+            pep_case.status = status
+        if senior_approval_status is not None:
+            pep_case.senior_approval_status = senior_approval_status
+        if source_of_wealth_status is not None:
+            pep_case.source_of_wealth_status = source_of_wealth_status
+        if source_of_funds_status is not None:
+            pep_case.source_of_funds_status = source_of_funds_status
+        if enhanced_monitoring is not None:
+            pep_case.enhanced_monitoring = enhanced_monitoring
+        if monitoring_notes is not None:
+            pep_case.monitoring_notes = monitoring_notes
+        if closure_evidence is not None:
+            pep_case.closure_evidence = closure_evidence
+        pep_case.reviewed_at = utcnow()
+
+        try:
+            record_audit_event(
+                db=db,
+                actor=actor,
+                action="pep_case.updated",
+                entity_type="pep_case",
+                entity_id=pep_case.id,
+                metadata_payload={"status": pep_case.status.value},
+            )
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            raise ScreeningPersistenceError("Unable to update pep case.") from exc
+        except Exception:
+            db.rollback()
+            raise
+        db.refresh(pep_case)
+        return pep_case
+
+    @staticmethod
+    def list_pep_cases_for_client(db: Session, client_id: int) -> list[PepCase]:
+        ScreeningService._get_client_or_raise(db=db, client_id=client_id)
+        stmt = (
+            select(PepCase)
+            .join(ScreeningCandidate, PepCase.screening_candidate_id == ScreeningCandidate.id)
+            .join(ScreeningResult, ScreeningCandidate.screening_result_id == ScreeningResult.id)
+            .outerjoin(LinkedParty, ScreeningResult.linked_party_id == LinkedParty.id)
+            .where(or_(ScreeningResult.client_id == client_id, LinkedParty.client_id == client_id))
+            .order_by(PepCase.updated_at.desc(), PepCase.id.desc())
+        )
+        return list(db.execute(stmt).scalars().all())
 
     @staticmethod
     def _persist_successful_screening_results(
@@ -267,6 +439,9 @@ class ScreeningService:
                 db.flush()
 
                 for candidate in normalized_result.candidates:
+                    match_category, policy_flags = ScreeningService.classify_candidate(
+                        candidate.candidate_payload
+                    )
                     screening_candidate = ScreeningCandidate(
                         screening_result_id=screening_result.id,
                         provider_candidate_id=candidate.provider_candidate_id,
@@ -277,10 +452,11 @@ class ScreeningService:
                             if candidate.match_score is not None
                             else None
                         ),
-                        list_name=candidate.list_name,
                         dataset=candidate.dataset,
                         country=candidate.country,
                         notes=candidate.notes,
+                        match_category=match_category,
+                        policy_flags=policy_flags,
                         candidate_payload=candidate.candidate_payload,
                     )
                     db.add(screening_candidate)
@@ -570,4 +746,54 @@ def update_candidate_disposition(
         candidate_id=candidate_id,
         payload=payload,
         actor=actor,
+    )
+
+
+def ensure_pep_case(
+    db: Session,
+    screening_candidate_id: int,
+    *,
+    actor: str = "demo_user",
+) -> PepCase:
+    return ScreeningService.ensure_pep_case(
+        db=db,
+        screening_candidate_id=screening_candidate_id,
+        actor=actor,
+    )
+
+
+def update_pep_case(
+    db: Session,
+    pep_case_id: int,
+    *,
+    status: PepCaseStatus | None = None,
+    senior_approval_status: VerificationStatus | None = None,
+    source_of_wealth_status: VerificationStatus | None = None,
+    source_of_funds_status: VerificationStatus | None = None,
+    enhanced_monitoring: bool | None = None,
+    monitoring_notes: str | None = None,
+    closure_evidence: dict[str, Any] | None = None,
+    actor: str = "demo_user",
+) -> PepCase:
+    return ScreeningService.update_pep_case(
+        db=db,
+        pep_case_id=pep_case_id,
+        status=status,
+        senior_approval_status=senior_approval_status,
+        source_of_wealth_status=source_of_wealth_status,
+        source_of_funds_status=source_of_funds_status,
+        enhanced_monitoring=enhanced_monitoring,
+        monitoring_notes=monitoring_notes,
+        closure_evidence=closure_evidence,
+        actor=actor,
+    )
+
+
+def list_pep_cases_for_client(
+    db: Session,
+    client_id: int,
+) -> list[PepCase]:
+    return ScreeningService.list_pep_cases_for_client(
+        db=db,
+        client_id=client_id,
     )

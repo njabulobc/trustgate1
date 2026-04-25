@@ -18,7 +18,7 @@ from app.models.client import Client  # noqa: F401
 from app.models.deal import Deal  # noqa: F401
 from app.models.linked_party import LinkedParty  # noqa: F401
 from app.models.risk_assessment import RiskAssessment  # noqa: F401
-from app.models.screening import ScreeningCandidate, ScreeningResult  # noqa: F401
+from app.models.screening import PepCase, ScreeningCandidate, ScreeningResult  # noqa: F401
 
 
 @asynccontextmanager
