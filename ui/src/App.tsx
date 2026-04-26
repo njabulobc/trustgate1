@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import {
   api,
   CandidateDisposition,
+  ComplianceDecisionResponse,
   ScreeningCandidate,
   DealTransactionType,
   IntakePayload,
@@ -48,6 +49,20 @@ function extractTopics(candidate: ScreeningCandidate): string[] {
 }
 
 function extractPolicyAlerts(candidate: ScreeningCandidate): PolicyAlert[] {
+  const policyFlags = candidate.policy_flags;
+  if (policyFlags && typeof policyFlags === 'object') {
+    const alerts = (policyFlags as Record<string, unknown>).alerts;
+    if (Array.isArray(alerts)) {
+      return alerts
+        .filter((alert): alert is Record<string, unknown> => typeof alert === 'object' && alert !== null)
+        .map((alert) => ({
+          severity: String(alert.severity ?? 'unknown'),
+          rationale: typeof alert.rationale === 'string' ? alert.rationale : null,
+          source: typeof alert.policy === 'string' ? alert.policy : null
+        }));
+    }
+  }
+
   const payload = candidate.candidate_payload;
   if (!payload || typeof payload !== 'object') return [];
   const record = payload as Record<string, unknown>;
@@ -96,12 +111,15 @@ export default function App() {
   const [dispositionReason, setDispositionReason] = useState('');
 
   const [riskAssessment, setRiskAssessment] = useState<RiskAssessment | null>(null);
+  const [complianceDecision, setComplianceDecision] = useState<ComplianceDecisionResponse | null>(null);
+  const [decisionExpanded, setDecisionExpanded] = useState(false);
   const [pepCases, setPepCases] = useState<PepCase[]>([]);
 
   const [intakeState, setIntakeState] = useState<AsyncState>({ loading: false, error: null, success: null });
   const [relationshipState, setRelationshipState] = useState<AsyncState>({ loading: false, error: null, success: null });
   const [screeningState, setScreeningState] = useState<AsyncState>({ loading: false, error: null, success: null });
   const [riskState, setRiskState] = useState<AsyncState>({ loading: false, error: null, success: null });
+  const [decisionState, setDecisionState] = useState<AsyncState>({ loading: false, error: null, success: null });
 
   const clientId = intake?.client.id;
   const dealId = intake?.deal.id;
@@ -167,6 +185,7 @@ export default function App() {
       const created = await api.createIntake(payload);
       setIntake(created);
       setScreeningResults([]);
+      setComplianceDecision(null);
       setSelectedCandidateId(null);
       setDispositionReason('');
       setIntakeState({ loading: false, error: null, success: `Created client_id=${created.client.id} and deal_id=${created.deal.id}.` });
@@ -264,6 +283,21 @@ export default function App() {
       setRiskState({ loading: false, error: null, success: `Created risk id=${response.risk_assessment.id}.` });
     } catch (error) {
       setRiskState({ loading: false, error: (error as Error).message, success: null });
+    }
+  }
+
+  async function handleGenerateComplianceDecision() {
+    if (!clientId) {
+      setDecisionState({ loading: false, error: 'client_id is required to generate a decision brief.', success: null });
+      return;
+    }
+    setDecisionState({ loading: true, error: null, success: null });
+    try {
+      const response = await api.generateComplianceDecision(clientId, dealId);
+      setComplianceDecision(response);
+      setDecisionState({ loading: false, error: null, success: `Decision generated with verdict=${response.verdict}.` });
+    } catch (error) {
+      setDecisionState({ loading: false, error: (error as Error).message, success: null });
     }
   }
 
@@ -478,9 +512,14 @@ export default function App() {
 
       <section className={cardClass}>
         <h2 className="text-lg font-semibold">5) Risk Assessment</h2>
-        <button className={`mt-3 ${buttonClass}`} onClick={handleRunRisk} disabled={riskState.loading}>{riskState.loading ? 'Running...' : 'Run Risk Assessment'}</button>
+        <div className="mt-3 flex flex-wrap gap-3">
+          <button className={buttonClass} onClick={handleRunRisk} disabled={riskState.loading}>{riskState.loading ? 'Running...' : 'Run Risk Assessment'}</button>
+          <button className={buttonClass} onClick={handleGenerateComplianceDecision} disabled={decisionState.loading}>{decisionState.loading ? 'Generating...' : 'Generate Compliance Decision'}</button>
+        </div>
         {riskState.error && <p className="mt-3 rounded-md bg-rose-50 p-2 text-sm text-rose-700">{riskState.error}</p>}
         {riskState.success && <p className="mt-3 rounded-md bg-emerald-50 p-2 text-sm text-emerald-700">{riskState.success}</p>}
+        {decisionState.error && <p className="mt-3 rounded-md bg-rose-50 p-2 text-sm text-rose-700">{decisionState.error}</p>}
+        {decisionState.success && <p className="mt-3 rounded-md bg-emerald-50 p-2 text-sm text-emerald-700">{decisionState.success}</p>}
 
         {riskAssessment && (
           <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm">
@@ -493,6 +532,61 @@ export default function App() {
             <p><span className="font-medium">Assessed at:</span> {new Date(riskAssessment.assessed_at).toLocaleString()}</p>
           </div>
         )}
+
+        <div className="mt-4 rounded-lg border border-slate-200 p-4 text-sm">
+          <h3 className="font-semibold">Decision Brief</h3>
+          {!complianceDecision && <p className="mt-2 text-slate-500">No decision brief yet. Generate one after screening/risk data is available.</p>}
+          {complianceDecision && (
+            <>
+              <p className="mt-2">
+                <span className="font-medium">Verdict:</span>{' '}
+                <span className={severityBadgeClass(complianceDecision.verdict === 'edd_required' ? 'high' : complianceDecision.verdict === 'review_required' ? 'medium' : 'low')}>
+                  {complianceDecision.verdict.toUpperCase()}
+                </span>
+              </p>
+              <div className="mt-3">
+                <p className="font-medium">Top reasons</p>
+                <ul className="ml-4 list-disc">
+                  {complianceDecision.top_reasons.slice(0, 3).map((reason, index) => <li key={`${reason}-${index}`}>{reason}</li>)}
+                  {complianceDecision.top_reasons.length === 0 && <li>No top reasons returned.</li>}
+                </ul>
+              </div>
+              <div className="mt-3">
+                <p className="font-medium">Required actions</p>
+                <ul className="mt-1 space-y-1">
+                  {complianceDecision.required_actions.map((action, index) => (
+                    <li key={`${action.action}-${index}`} className="flex items-center gap-2">
+                      <input type="checkbox" checked={action.status === 'verified'} readOnly />
+                      <span>{action.action}{action.pep_case_id ? ` (case ${action.pep_case_id})` : ''}</span>
+                    </li>
+                  ))}
+                  {complianceDecision.required_actions.length === 0 && <li>No pending required actions.</li>}
+                </ul>
+              </div>
+              <p className="mt-3 text-xs text-slate-600">
+                Evidence · candidates: {complianceDecision.evidence.candidate_ids.join(', ') || '—'} · pep cases: {complianceDecision.evidence.pep_case_ids.join(', ') || '—'} · risk: {complianceDecision.evidence.risk_assessment_id}
+              </p>
+              <button className="mt-3 rounded bg-slate-100 px-2 py-1 text-xs hover:bg-slate-200" onClick={() => setDecisionExpanded((old) => !old)}>
+                {decisionExpanded ? 'Hide Why' : 'Show Why'}
+              </button>
+              {decisionExpanded && (
+                <div className="mt-3 rounded border border-slate-100 bg-slate-50 p-3">
+                  <p className="font-medium">Why</p>
+                  <ul className="mt-2 space-y-2 text-xs">
+                    {(complianceDecision.why.candidate_context ?? []).map((entry) => (
+                      <li key={`why-${entry.candidate_id}`}>
+                        candidate_id={entry.candidate_id} · match_category={entry.match_category} · alerts={(entry.policy_alerts ?? []).map((a) => `${a.severity ?? 'unknown'}:${a.rationale ?? 'n/a'}`).join(' | ') || 'none'}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 text-xs text-slate-700">
+                    Triggered risk factors: {(complianceDecision.why.risk?.triggered_factors ?? []).join(', ') || 'none'}
+                  </p>
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </section>
     </main>
   );

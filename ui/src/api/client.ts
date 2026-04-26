@@ -143,6 +143,44 @@ export type RiskAssessment = {
   assessed_at: string;
 };
 
+export type ComplianceVerdict = 'clear' | 'review_required' | 'edd_required';
+
+export type ComplianceDecisionAction = {
+  action: string;
+  status: string;
+  pep_case_id: number | null;
+};
+
+export type ComplianceDecisionEvidence = {
+  screening_result_ids: number[];
+  candidate_ids: number[];
+  pep_case_ids: number[];
+  risk_assessment_id: number;
+};
+
+export type ComplianceDecisionCandidateWhy = {
+  candidate_id: number;
+  screening_result_id: number;
+  match_category: MatchCategory;
+  disposition: CandidateDisposition;
+  policy_alerts: Array<{ policy?: string; severity?: string; rationale?: string }>;
+};
+
+export type ComplianceDecisionResponse = {
+  verdict: ComplianceVerdict;
+  top_reasons: string[];
+  required_actions: ComplianceDecisionAction[];
+  evidence: ComplianceDecisionEvidence;
+  why: {
+    candidate_context?: ComplianceDecisionCandidateWhy[];
+    risk?: {
+      risk_assessment_id: number;
+      risk_level: string;
+      triggered_factors: string[];
+    };
+  };
+};
+
 export const api = {
   createIntake: (payload: IntakePayload) => request<IntakeResponse>('/intake', {
     method: 'POST',
@@ -191,5 +229,9 @@ export const api = {
   runRisk: (clientId: number, dealId?: number) => request<{ risk_assessment: RiskAssessment }>(`/risk/clients/${clientId}${dealId ? `?deal_id=${dealId}` : ''}`, {
     method: 'POST'
   }),
-  getLatestRisk: (clientId: number, dealId?: number) => request<{ risk_assessment: RiskAssessment }>(`/risk/clients/${clientId}${dealId ? `?deal_id=${dealId}` : ''}`)
+  getLatestRisk: (clientId: number, dealId?: number) => request<{ risk_assessment: RiskAssessment }>(`/risk/clients/${clientId}${dealId ? `?deal_id=${dealId}` : ''}`),
+
+  generateComplianceDecision: (clientId: number, dealId?: number) => request<ComplianceDecisionResponse>(`/compliance/clients/${clientId}/decision${dealId ? `?deal_id=${dealId}` : ''}`, {
+    method: 'POST'
+  })
 };

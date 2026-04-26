@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.routes.compliance import router as compliance_router
 from app.api.routes.intake import router as intake_router
 from app.api.routes.relationships import router as relationships_router
 from app.api.routes.risk import router as risk_router
@@ -48,6 +49,7 @@ app.include_router(intake_router)
 app.include_router(relationships_router)
 app.include_router(screening_router)
 app.include_router(risk_router)
+app.include_router(compliance_router)
 
 
 @app.get("/health", tags=["health"])
