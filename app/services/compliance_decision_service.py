@@ -16,7 +16,7 @@ from app.schemas.compliance import (
 )
 from app.services.audit_service import record_audit_event
 from app.services.risk_service import assess_risk
-from app.services.screening_service import ensure_pep_case, list_screening_results_for_client, run_screening_for_client
+from app.services.screening_service import ensure_pep_case, run_screening_for_client
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,10 +42,9 @@ class ComplianceDecisionService:
         )
         screening_result_ids = [result.id for result in screening_results]
 
-        all_results = list_screening_results_for_client(db=db, client_id=client_id)
         candidate_contexts = [
             _CandidateContext(screening_result_id=result.id, candidate=candidate)
-            for result in all_results
+            for result in screening_results
             for candidate in result.candidates
         ]
 
@@ -145,9 +144,8 @@ class ComplianceDecisionService:
             context.candidate.disposition == CandidateDisposition.NEEDS_EDD
             for context in candidate_contexts
         )
-        has_open_pep_obligations = any(
-            pep_case.status != PepCaseStatus.SENIOR_APPROVED for pep_case in pep_cases
-        )
+        open_pep_statuses = {PepCaseStatus.OPEN, PepCaseStatus.IN_REVIEW}
+        has_open_pep_obligations = any(pep_case.status in open_pep_statuses for pep_case in pep_cases)
 
         if has_edd_candidate or has_open_pep_obligations or risk_assessment.risk_level == RiskLevel.HIGH:
             return ComplianceVerdict.EDD_REQUIRED
