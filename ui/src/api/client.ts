@@ -6,13 +6,20 @@ export type LinkedPartyType = 'individual' | 'company';
 export type LinkedPartyRole = 'beneficial_owner' | 'representative' | 'co_buyer' | 'co_seller' | 'payer' | 'intermediary' | 'other';
 export type ScreeningSubjectType = 'client' | 'linked_party';
 export type CandidateDisposition = 'pending' | 'confirmed_match' | 'false_positive' | 'needs_edd';
+export type MatchCategory = 'standard' | 'pep' | 'rca';
+export type PepCaseStatus = 'open' | 'in_review' | 'senior_approved' | 'rejected' | 'closed';
+export type VerificationStatus = 'pending' | 'verified' | 'insufficient';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
+const API_TOKEN = import.meta.env.VITE_API_BEARER_TOKEN;
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const localStorageToken = typeof window !== 'undefined' ? window.localStorage.getItem('trustgate_api_token') : null;
+  const bearerToken = API_TOKEN ?? localStorageToken;
   const response = await fetch(`${API_BASE}${path}`, {
     headers: {
       'Content-Type': 'application/json',
+      ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
       ...(init?.headers ?? {})
     },
     ...init
@@ -81,10 +88,27 @@ export type ScreeningCandidate = {
   dataset: string | null;
   country: string | null;
   notes: string | null;
+  match_category: MatchCategory;
+  policy_flags: Record<string, unknown> | null;
   disposition: CandidateDisposition;
   disposition_reason: string | null;
   reviewed_at: string | null;
   candidate_payload: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PepCase = {
+  id: number;
+  screening_candidate_id: number;
+  status: PepCaseStatus;
+  senior_approval_status: VerificationStatus;
+  source_of_wealth_status: VerificationStatus;
+  source_of_funds_status: VerificationStatus;
+  enhanced_monitoring: boolean;
+  monitoring_notes: string | null;
+  closure_evidence: Record<string, unknown> | null;
+  reviewed_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -155,6 +179,14 @@ export const api = {
       disposition_reason: dispositionReason ?? null
     })
   }),
+  openPepCase: (candidateId: number) => request<PepCase>(`/screening/candidates/${candidateId}/pep-case`, {
+    method: 'POST'
+  }),
+  patchPepCase: (pepCaseId: number, payload: Partial<PepCase>) => request<PepCase>(`/screening/pep-cases/${pepCaseId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload)
+  }),
+  getPepCasesByClientId: (clientId: number) => request<PepCase[]>(`/screening/clients/${clientId}/pep-cases`),
 
   runRisk: (clientId: number, dealId?: number) => request<{ risk_assessment: RiskAssessment }>(`/risk/clients/${clientId}${dealId ? `?deal_id=${dealId}` : ''}`, {
     method: 'POST'

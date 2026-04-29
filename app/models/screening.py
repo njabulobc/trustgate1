@@ -37,6 +37,26 @@ class CandidateDisposition(str, enum.Enum):
     NEEDS_EDD = "needs_edd"
 
 
+class MatchCategory(str, enum.Enum):
+    STANDARD = "standard"
+    PEP = "pep"
+    RCA = "rca"
+
+
+class PepCaseStatus(str, enum.Enum):
+    OPEN = "open"
+    IN_REVIEW = "in_review"
+    SENIOR_APPROVED = "senior_approved"
+    REJECTED = "rejected"
+    CLOSED = "closed"
+
+
+class VerificationStatus(str, enum.Enum):
+    PENDING = "pending"
+    VERIFIED = "verified"
+    INSUFFICIENT = "insufficient"
+
+
 class ScreeningResult(Base):
     __tablename__ = "screening_results"
 
@@ -125,6 +145,13 @@ class ScreeningCandidate(Base):
     dataset: Mapped[str | None] = mapped_column(String(150), nullable=True)
     country: Mapped[str | None] = mapped_column(String(100), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    match_category: Mapped[MatchCategory] = mapped_column(
+        Enum(MatchCategory, name="match_category"),
+        nullable=False,
+        default=MatchCategory.STANDARD,
+        index=True,
+    )
+    policy_flags: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
     disposition: Mapped[CandidateDisposition] = mapped_column(
         Enum(CandidateDisposition, name="candidate_disposition"),
@@ -152,4 +179,66 @@ class ScreeningCandidate(Base):
     screening_result: Mapped["ScreeningResult"] = relationship(
         "ScreeningResult",
         back_populates="candidates",
+    )
+    pep_case: Mapped["PepCase | None"] = relationship(
+        "PepCase",
+        back_populates="candidate",
+        uselist=False,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class PepCase(Base):
+    __tablename__ = "pep_cases"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    screening_candidate_id: Mapped[int] = mapped_column(
+        ForeignKey("screening_candidates.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+
+    status: Mapped[PepCaseStatus] = mapped_column(
+        Enum(PepCaseStatus, name="pep_case_status"),
+        nullable=False,
+        default=PepCaseStatus.OPEN,
+        index=True,
+    )
+    senior_approval_status: Mapped[VerificationStatus] = mapped_column(
+        Enum(VerificationStatus, name="senior_approval_status"),
+        nullable=False,
+        default=VerificationStatus.PENDING,
+    )
+    source_of_wealth_status: Mapped[VerificationStatus] = mapped_column(
+        Enum(VerificationStatus, name="source_of_wealth_status"),
+        nullable=False,
+        default=VerificationStatus.PENDING,
+    )
+    source_of_funds_status: Mapped[VerificationStatus] = mapped_column(
+        Enum(VerificationStatus, name="source_of_funds_status"),
+        nullable=False,
+        default=VerificationStatus.PENDING,
+    )
+    enhanced_monitoring: Mapped[bool] = mapped_column(nullable=False, default=True)
+    monitoring_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    closure_evidence: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utcnow,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utcnow,
+        onupdate=utcnow,
+    )
+
+    candidate: Mapped["ScreeningCandidate"] = relationship(
+        "ScreeningCandidate",
+        back_populates="pep_case",
     )

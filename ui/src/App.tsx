@@ -13,7 +13,8 @@ import {
   LinkedPartyType,
   ScreeningResult,
   RiskAssessment,
-  ClientType
+  ClientType,
+  PepCase
 } from './api/client';
 
 type AsyncState = {
@@ -95,6 +96,7 @@ export default function App() {
   const [dispositionReason, setDispositionReason] = useState('');
 
   const [riskAssessment, setRiskAssessment] = useState<RiskAssessment | null>(null);
+  const [pepCases, setPepCases] = useState<PepCase[]>([]);
 
   const [intakeState, setIntakeState] = useState<AsyncState>({ loading: false, error: null, success: null });
   const [relationshipState, setRelationshipState] = useState<AsyncState>({ loading: false, error: null, success: null });
@@ -108,6 +110,7 @@ export default function App() {
     if (!clientId || !dealId) return;
     api.getRelationships(clientId, dealId).then(setLinkedParties).catch(() => undefined);
     api.getScreeningByClientId(clientId).then(setScreeningResults).catch(() => undefined);
+    api.getPepCasesByClientId(clientId).then(setPepCases).catch(() => undefined);
     api.getLatestRisk(clientId, dealId).then((res) => setRiskAssessment(res.risk_assessment)).catch(() => undefined);
   }, [clientId, dealId]);
 
@@ -211,6 +214,8 @@ export default function App() {
     try {
       const results = await api.runScreening(clientId);
       setScreeningResults(results);
+      const cases = await api.getPepCasesByClientId(clientId);
+      setPepCases(cases);
       setSelectedCandidateId(null);
       setDispositionReason('');
       setScreeningState({ loading: false, error: null, success: `Screening complete with ${results.length} result set(s).` });
@@ -231,9 +236,15 @@ export default function App() {
     }
     setScreeningState({ loading: true, error: null, success: null });
     try {
-        const candidate = await api.patchCandidateDisposition(selectedCandidate.id, candidateDisposition, dispositionReason || undefined);      if (clientId) {
+      const candidate = await api.patchCandidateDisposition(selectedCandidate.id, candidateDisposition, dispositionReason || undefined);
+      if ((selectedCandidate.match_category === 'pep' || selectedCandidate.match_category === 'rca') && (candidateDisposition === 'confirmed_match' || candidateDisposition === 'needs_edd')) {
+        await api.openPepCase(selectedCandidate.id);
+      }
+      if (clientId) {
         const refreshed = await api.getScreeningByClientId(clientId);
+        const caseRefresh = await api.getPepCasesByClientId(clientId);
         setScreeningResults(refreshed);
+        setPepCases(caseRefresh);
       }
       setScreeningState({ loading: false, error: null, success: `Updated candidate_id=${candidate.id} disposition.` });
     } catch (error) {
@@ -397,7 +408,7 @@ export default function App() {
                             <>
                         <p>candidate_id={candidate.id} · {candidate.matched_name} · {candidate.disposition}</p>
                         <p className="mt-1 text-xs text-slate-600">
-                          dataset: {candidate.dataset ?? 'n/a'} · match_score: {candidate.match_score ?? 'n/a'} · country: {candidate.country ?? 'n/a'}
+                          dataset: {candidate.dataset ?? 'n/a'} · match_score: {candidate.match_score ?? 'n/a'} · country: {candidate.country ?? 'n/a'} · category: {candidate.match_category}
                         </p>
                         <p className="mt-1 text-xs text-slate-600">notes/topics: {notesOrTopics}</p>
                         <p className="mt-1 text-xs text-slate-500">
@@ -452,7 +463,21 @@ export default function App() {
       </section>
 
       <section className={cardClass}>
-        <h2 className="text-lg font-semibold">4) Risk Assessment</h2>
+        <h2 className="text-lg font-semibold">4) PEP/RCA Case Management</h2>
+        <p className="mt-2 text-sm text-slate-600">Cases open automatically when PEP/RCA candidates are dispositioned as confirmed match or needs EDD.</p>
+        <div className="mt-3 space-y-2">
+          {pepCases.map((pepCase) => (
+            <div key={pepCase.id} className="rounded border border-slate-200 p-3 text-sm">
+              <p>Case #{pepCase.id} · candidate_id={pepCase.screening_candidate_id} · status={pepCase.status}</p>
+              <p className="text-xs text-slate-600">senior approval={pepCase.senior_approval_status} · SoW={pepCase.source_of_wealth_status} · SoF={pepCase.source_of_funds_status} · enhanced monitoring={pepCase.enhanced_monitoring ? 'yes' : 'no'}</p>
+            </div>
+          ))}
+          {pepCases.length === 0 && <p className="text-sm text-slate-500">No PEP/RCA cases yet.</p>}
+        </div>
+      </section>
+
+      <section className={cardClass}>
+        <h2 className="text-lg font-semibold">5) Risk Assessment</h2>
         <button className={`mt-3 ${buttonClass}`} onClick={handleRunRisk} disabled={riskState.loading}>{riskState.loading ? 'Running...' : 'Run Risk Assessment'}</button>
         {riskState.error && <p className="mt-3 rounded-md bg-rose-50 p-2 text-sm text-rose-700">{riskState.error}</p>}
         {riskState.success && <p className="mt-3 rounded-md bg-emerald-50 p-2 text-sm text-emerald-700">{riskState.success}</p>}

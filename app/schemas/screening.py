@@ -8,8 +8,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.screening import (
     CandidateDisposition,
+    MatchCategory,
+    PepCaseStatus,
     ScreeningStatus,
     ScreeningSubjectType,
+    VerificationStatus,
 )
 
 
@@ -33,6 +36,8 @@ class ScreeningCandidateRead(BaseModel):
     dataset: str | None
     country: str | None
     notes: str | None
+    match_category: MatchCategory
+    policy_flags: dict[str, Any] | None
     disposition: CandidateDisposition
     disposition_reason: str | None
     reviewed_at: datetime | None
@@ -69,3 +74,30 @@ class ScreeningRunResponse(BaseModel):
 class CandidateDispositionUpdate(BaseModel):
     disposition: CandidateDisposition
     disposition_reason: str | None = None
+
+
+class PepCaseRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    screening_candidate_id: int
+    status: PepCaseStatus
+    senior_approval_status: VerificationStatus
+    source_of_wealth_status: VerificationStatus
+    source_of_funds_status: VerificationStatus
+    enhanced_monitoring: bool
+    monitoring_notes: str | None
+    closure_evidence: dict[str, Any] | None
+    reviewed_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class PepCaseUpdate(BaseModel):
+    status: PepCaseStatus | None = None
+    senior_approval_status: VerificationStatus | None = None
+    source_of_wealth_status: VerificationStatus | None = None
+    source_of_funds_status: VerificationStatus | None = None
+    enhanced_monitoring: bool | None = None
+    monitoring_notes: str | None = None
+    closure_evidence: dict[str, Any] | None = None
