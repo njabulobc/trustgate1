@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.api.deps import DBSession
+from app.api.deps import DBSession, require_roles
+from app.core.auth import UserRole
 from app.schemas.intake import (
     ClientRead,
     DealRead,
@@ -19,7 +20,7 @@ from app.services.intake_service import (
     update_intake,
 )
 
-router = APIRouter(prefix="/intake", tags=["intake"])
+router = APIRouter(prefix="/intake", tags=["intake"], dependencies=[Depends(require_roles(UserRole.ANALYST, UserRole.REVIEWER))])
 
 
 def _build_intake_response(*, client, deal) -> IntakeRead:

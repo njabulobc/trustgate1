@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
-from app.api.deps import DBSession
+from app.api.deps import DBSession, require_roles
+from app.core.auth import UserRole
 from app.schemas.relationship import (
     LinkedPartyCreate,
     LinkedPartyRead,
@@ -18,7 +19,7 @@ from app.services.relationship_service import (
     update_linked_party,
 )
 
-router = APIRouter(prefix="/relationships", tags=["relationships"])
+router = APIRouter(prefix="/relationships", tags=["relationships"], dependencies=[Depends(require_roles(UserRole.ANALYST, UserRole.REVIEWER))])
 
 
 @router.post(

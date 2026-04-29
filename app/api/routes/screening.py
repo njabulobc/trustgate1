@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.api.deps import DBSession
+from app.api.deps import DBSession, require_roles
+from app.core.auth import UserRole
 from app.models.screening import ScreeningSubjectType
 from app.schemas.screening import (
     CandidateDispositionUpdate,
@@ -20,7 +21,7 @@ from app.services.screening_service import (  # type: ignore[import-not-found]
     update_candidate_disposition,
 )
 
-router = APIRouter(prefix="/screening", tags=["screening"])
+router = APIRouter(prefix="/screening", tags=["screening"], dependencies=[Depends(require_roles(UserRole.ANALYST, UserRole.REVIEWER))])
 
 
 @router.post(
@@ -89,6 +90,7 @@ def list_client_screening_results(
     "/candidates/{candidate_id}/disposition",
     response_model=ScreeningCandidateRead,
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_roles(UserRole.REVIEWER))],
 )
 def review_screening_candidate(
     candidate_id: int,

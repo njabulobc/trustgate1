@@ -27,3 +27,6 @@ class RiskAssessmentRead(BaseModel):
 
 class RiskAssessmentResponse(BaseModel):
     risk_assessment: RiskAssessmentRead
+
+class RiskAssessmentHistoryResponse(BaseModel):
+    items: list[RiskAssessmentRead]
