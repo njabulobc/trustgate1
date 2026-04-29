@@ -46,7 +46,7 @@ def _repair_legacy_schema() -> None:
             connection.execute(
                 text(
                     "ALTER TABLE screening_candidates "
-                    "ADD COLUMN match_category VARCHAR(20) NOT NULL DEFAULT 'standard'"
+                    "ADD COLUMN match_category VARCHAR(20) NOT NULL DEFAULT 'STANDARD'"
                 )
             )
         if "policy_flags" not in existing_columns:
