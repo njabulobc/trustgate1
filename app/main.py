@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import inspect, text
 
 from app.api.routes.compliance import router as compliance_router
 from app.api.routes.edd import router as edd_router
@@ -24,9 +25,43 @@ from app.models.risk_assessment import RiskAssessment  # noqa: F401
 from app.models.screening import PepCase, ScreeningCandidate, ScreeningResult  # noqa: F401
 
 
+def _repair_legacy_schema() -> None:
+    """Apply additive schema repairs for legacy SQLite databases.
+
+    SQLite `create_all` does not alter existing tables, so older local DB files
+    can miss newly-added columns and fail at runtime.
+    """
+
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    if "screening_candidates" not in tables:
+        return
+
+    existing_columns = {
+        column["name"] for column in inspector.get_columns("screening_candidates")
+    }
+
+    with engine.begin() as connection:
+        if "match_category" not in existing_columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE screening_candidates "
+                    "ADD COLUMN match_category VARCHAR(20) NOT NULL DEFAULT 'standard'"
+                )
+            )
+        if "policy_flags" not in existing_columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE screening_candidates "
+                    "ADD COLUMN policy_flags JSON"
+                )
+            )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    _repair_legacy_schema()
     yield
 
 
