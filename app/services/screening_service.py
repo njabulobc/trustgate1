@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.models.client import Client, ClientType
 from app.models.deal import Deal
 from app.models.linked_party import LinkedParty, LinkedPartyType
+from app.models.edd_case import EddPriority, EddTriggerType
 from app.models.screening import (
     CandidateDisposition,
     MatchCategory,
@@ -23,8 +24,10 @@ from app.models.screening import (
     ScreeningSubjectType,
     VerificationStatus,
 )
+from app.schemas.edd import EddCaseCreate
 from app.schemas.screening import CandidateDispositionUpdate
 from app.services.audit_service import record_audit_event
+from app.services.edd_service import EddService
 from app.services.provider_adapter_service import (
     OpenSanctionsAdapter,
     ProviderAdapterError,
@@ -567,8 +570,20 @@ class ScreeningService:
         if pep_case is not None:
             return pep_case
 
+        edd_case = EddService.create_case(
+            db=db,
+            payload=EddCaseCreate(
+                trigger_type=EddTriggerType.PEP,
+                trigger_reference=f"screening_candidate:{screening_candidate_id}",
+                priority=EddPriority.HIGH,
+                screening_candidate_id=screening_candidate_id,
+            ),
+            actor=actor,
+        )
+
         pep_case = PepCase(
             screening_candidate_id=screening_candidate_id,
+            edd_case_id=edd_case.id,
             status=PepCaseStatus.IN_REVIEW,
             senior_approval_status=VerificationStatus.PENDING,
             source_of_wealth_status=VerificationStatus.PENDING,

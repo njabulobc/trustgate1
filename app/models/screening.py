@@ -12,6 +12,7 @@ from app.core.database import Base
 if TYPE_CHECKING:
     from app.models.client import Client
     from app.models.linked_party import LinkedParty
+    from app.models.edd_case import EddCase
 
 
 def utcnow() -> datetime:
@@ -224,6 +225,7 @@ class PepCase(Base):
     enhanced_monitoring: Mapped[bool] = mapped_column(nullable=False, default=True)
     monitoring_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     closure_evidence: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    edd_case_id: Mapped[int | None] = mapped_column(ForeignKey("edd_cases.id", ondelete="SET NULL"), nullable=True, unique=True, index=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
@@ -242,3 +244,4 @@ class PepCase(Base):
         "ScreeningCandidate",
         back_populates="pep_case",
     )
+    edd_case: Mapped["EddCase | None"] = relationship("EddCase", back_populates="pep_case")
