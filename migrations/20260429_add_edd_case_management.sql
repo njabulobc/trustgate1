@@ -28,5 +28,6 @@ CREATE INDEX IF NOT EXISTS ix_edd_cases_assignee ON edd_cases(assignee);
 CREATE INDEX IF NOT EXISTS ix_edd_cases_client_id ON edd_cases(client_id);
 CREATE INDEX IF NOT EXISTS ix_edd_cases_due_date ON edd_cases(due_date);
 
-ALTER TABLE pep_cases ADD COLUMN edd_case_id INTEGER UNIQUE REFERENCES edd_cases(id) ON DELETE SET NULL;
+ALTER TABLE pep_cases ADD COLUMN edd_case_id INTEGER REFERENCES edd_cases(id) ON DELETE SET NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_pep_cases_edd_case_id ON pep_cases(edd_case_id) WHERE edd_case_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS ix_pep_cases_edd_case_id ON pep_cases(edd_case_id);
