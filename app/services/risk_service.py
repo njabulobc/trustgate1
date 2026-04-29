@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.models.client import Client, ClientType
 from app.models.deal import Deal
 from app.models.linked_party import LinkedParty, LinkedPartyRole
+from app.models.edd_case import EDDCase
 from app.models.risk_assessment import RiskAssessment, RiskLevel
 from app.models.screening import (
     CandidateDisposition,
@@ -135,6 +136,29 @@ class RiskService:
 
         try:
             db.flush()
+
+            if risk_level == RiskLevel.HIGH:
+                edd_case = EDDCase(
+                    client_id=client.id,
+                    deal_id=deal.id if deal is not None else None,
+                    risk_assessment_id=assessment.id,
+                    trigger_reason="Risk threshold exceeded and requires EDD.",
+                )
+                db.add(edd_case)
+                db.flush()
+                record_audit_event(
+                    db=db,
+                    actor=actor,
+                    action="edd_case.created",
+                    entity_type="edd_case",
+                    entity_id=edd_case.id,
+                    metadata_payload={
+                        "trigger_type": "high_risk_assessment",
+                        "risk_assessment_id": assessment.id,
+                        "client_id": client.id,
+                        "deal_id": deal.id if deal is not None else None,
+                    },
+                )
 
             record_audit_event(
                 db=db,
