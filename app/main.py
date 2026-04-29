@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes.compliance import router as compliance_router
+from app.api.routes.edd import router as edd_router
 from app.api.routes.intake import router as intake_router
 from app.api.routes.relationships import router as relationships_router
 from app.api.routes.risk import router as risk_router
@@ -17,6 +18,7 @@ from app.core.database import Base, engine
 from app.models.audit_log import AuditLog  # noqa: F401
 from app.models.client import Client  # noqa: F401
 from app.models.deal import Deal  # noqa: F401
+from app.models.edd_case import EddCase  # noqa: F401
 from app.models.linked_party import LinkedParty  # noqa: F401
 from app.models.risk_assessment import RiskAssessment  # noqa: F401
 from app.models.screening import PepCase, ScreeningCandidate, ScreeningResult  # noqa: F401
@@ -50,6 +52,7 @@ app.include_router(relationships_router)
 app.include_router(screening_router)
 app.include_router(risk_router)
 app.include_router(compliance_router)
+app.include_router(edd_router)
 
 
 @app.get("/health", tags=["health"])

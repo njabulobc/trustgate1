@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.client import Client, ClientType
+from app.models.edd_case import EddPriority, EddTriggerType
 from app.models.deal import Deal
 from app.models.linked_party import LinkedParty, LinkedPartyRole
 from app.models.risk_assessment import RiskAssessment, RiskLevel
@@ -20,6 +21,8 @@ from app.models.screening import (
     ScreeningSubjectType,
 )
 from app.services.audit_service import record_audit_event
+from app.schemas.edd import EddCaseCreate
+from app.services.edd_service import EddService
 
 
 def utcnow() -> datetime:
@@ -150,6 +153,21 @@ class RiskService:
                     "triggered_factors": factor_breakdown["triggered_factors"],
                 },
             )
+
+            if risk_level == RiskLevel.HIGH:
+                EddService.create_case(
+                    db=db,
+                    payload=EddCaseCreate(
+                        trigger_type=EddTriggerType.RISK,
+                        trigger_reference=f"risk_assessment:{assessment.id}",
+                        priority=EddPriority.CRITICAL,
+                        risk_level=risk_level.value,
+                        client_id=assessment.client_id,
+                        deal_id=assessment.deal_id,
+                        risk_assessment_id=assessment.id,
+                    ),
+                    actor=actor,
+                )
 
             db.commit()
         except IntegrityError as exc:
