@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.api.deps import DBSession
+from app.api.deps import CurrentUser, DBSession, require_roles
+from app.models.user import User, UserRole
 from app.schemas.intake import (
     ClientRead,
     DealRead,
@@ -10,12 +11,14 @@ from app.schemas.intake import (
     IntakeRead,
     IntakeUpdate,
 )
+from app.schemas.platform import IntakeListItem
 from app.services.intake_service import (
     IntakeConflictError,
     IntakeNotFoundError,
     create_intake,
     get_intake_by_client_id,
     get_intake_by_deal_id,
+    list_intakes,
     update_intake,
 )
 
@@ -29,6 +32,18 @@ def _build_intake_response(*, client, deal) -> IntakeRead:
     )
 
 
+@router.get(
+    "",
+    response_model=list[IntakeListItem],
+    status_code=status.HTTP_200_OK,
+)
+def list_intake_cases(
+    db: DBSession,
+    user: CurrentUser,
+) -> list[IntakeListItem]:
+    return list_intakes(db=db)
+
+
 @router.post(
     "",
     response_model=IntakeRead,
@@ -37,9 +52,17 @@ def _build_intake_response(*, client, deal) -> IntakeRead:
 def create_intake_case(
     payload: IntakeCreate,
     db: DBSession,
+    user: User = Depends(
+        require_roles(
+            UserRole.ADMINISTRATOR,
+            UserRole.COMPLIANCE_OFFICER,
+            UserRole.ANALYST,
+            UserRole.REVIEWER,
+        )
+    ),
 ) -> IntakeRead:
     try:
-        client, deal = create_intake(db=db, payload=payload)
+        client, deal = create_intake(db=db, payload=payload, actor=user.username)
     except IntakeConflictError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -57,6 +80,7 @@ def create_intake_case(
 def read_intake_by_client(
     client_id: int,
     db: DBSession,
+    user: CurrentUser,
     deal_id: int | None = Query(default=None),
 ) -> IntakeRead:
     try:
@@ -82,6 +106,7 @@ def read_intake_by_client(
 def read_intake_by_deal(
     deal_id: int,
     db: DBSession,
+    user: CurrentUser,
 ) -> IntakeRead:
     try:
         client, deal = get_intake_by_deal_id(db=db, deal_id=deal_id)
@@ -103,6 +128,14 @@ def update_intake_case(
     client_id: int,
     payload: IntakeUpdate,
     db: DBSession,
+    user: User = Depends(
+        require_roles(
+            UserRole.ADMINISTRATOR,
+            UserRole.COMPLIANCE_OFFICER,
+            UserRole.ANALYST,
+            UserRole.REVIEWER,
+        )
+    ),
     deal_id: int | None = Query(default=None),
 ) -> IntakeRead:
     try:
@@ -110,6 +143,7 @@ def update_intake_case(
             db=db,
             client_id=client_id,
             payload=payload,
+            actor=user.username,
             deal_id=deal_id,
         )
     except IntakeNotFoundError as exc:
