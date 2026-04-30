@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
-from app.api.deps import DBSession
+from app.api.deps import CurrentUser, DBSession, require_roles
+from app.models.user import User, UserRole
 from app.schemas.relationship import (
     LinkedPartyCreate,
     LinkedPartyRead,
@@ -29,9 +30,17 @@ router = APIRouter(prefix="/relationships", tags=["relationships"])
 def create_relationship(
     payload: LinkedPartyCreate,
     db: DBSession,
+    user: User = Depends(
+        require_roles(
+            UserRole.ADMINISTRATOR,
+            UserRole.COMPLIANCE_OFFICER,
+            UserRole.ANALYST,
+            UserRole.REVIEWER,
+        )
+    ),
 ) -> LinkedPartyRead:
     try:
-        linked_party = create_linked_party(db=db, payload=payload)
+        linked_party = create_linked_party(db=db, payload=payload, actor=user.username)
     except RelationshipValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -53,6 +62,7 @@ def create_relationship(
 )
 def list_relationships(
     db: DBSession,
+    user: CurrentUser,
     client_id: int | None = Query(default=None),
     deal_id: int | None = Query(default=None),
 ) -> list[LinkedPartyRead]:
@@ -80,12 +90,21 @@ def update_relationship(
     linked_party_id: int,
     payload: LinkedPartyUpdate,
     db: DBSession,
+    user: User = Depends(
+        require_roles(
+            UserRole.ADMINISTRATOR,
+            UserRole.COMPLIANCE_OFFICER,
+            UserRole.ANALYST,
+            UserRole.REVIEWER,
+        )
+    ),
 ) -> LinkedPartyRead:
     try:
         linked_party = update_linked_party(
             db=db,
             linked_party_id=linked_party_id,
             payload=payload,
+            actor=user.username,
         )
     except LinkedPartyNotFoundError as exc:
         raise HTTPException(
@@ -108,9 +127,16 @@ def update_relationship(
 def delete_relationship(
     linked_party_id: int,
     db: DBSession,
+    user: User = Depends(
+        require_roles(
+            UserRole.ADMINISTRATOR,
+            UserRole.COMPLIANCE_OFFICER,
+            UserRole.ANALYST,
+        )
+    ),
 ) -> Response:
     try:
-        delete_linked_party(db=db, linked_party_id=linked_party_id)
+        delete_linked_party(db=db, linked_party_id=linked_party_id, actor=user.username)
     except LinkedPartyNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

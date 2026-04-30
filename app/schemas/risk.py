@@ -7,6 +7,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict
 
 from app.models.risk_assessment import RiskLevel
+from app.schemas.platform import RiskOverrideRead
 
 
 class RiskAssessmentRead(BaseModel):
@@ -27,3 +28,6 @@ class RiskAssessmentRead(BaseModel):
 
 class RiskAssessmentResponse(BaseModel):
     risk_assessment: RiskAssessmentRead
+    recommended_action: str | None = None
+    edd_required: bool = False
+    overrides: list[RiskOverrideRead] = []

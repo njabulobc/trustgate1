@@ -8,7 +8,9 @@ from sqlalchemy.orm import Session
 
 from app.models.client import Client
 from app.models.deal import Deal
+from app.models.risk_assessment import RiskAssessment
 from app.schemas.intake import IntakeCreate, IntakeUpdate
+from app.schemas.platform import IntakeListItem
 from app.services.audit_service import record_audit_event
 
 
@@ -25,6 +27,36 @@ class IntakeConflictError(IntakeServiceError):
 
 
 class IntakeService:
+    @staticmethod
+    def list_intakes(db: Session) -> list[IntakeListItem]:
+        clients = list(db.execute(select(Client).order_by(Client.updated_at.desc(), Client.id.desc())).scalars().all())
+        items: list[IntakeListItem] = []
+        for client in clients:
+            deal = db.execute(
+                select(Deal).where(Deal.client_id == client.id).order_by(Deal.updated_at.desc(), Deal.id.desc())
+            ).scalars().first()
+            risk = db.execute(
+                select(RiskAssessment).where(RiskAssessment.client_id == client.id).order_by(
+                    RiskAssessment.assessed_at.desc(),
+                    RiskAssessment.id.desc(),
+                )
+            ).scalars().first()
+            items.append(
+                IntakeListItem(
+                    client_id=client.id,
+                    deal_id=deal.id if deal is not None else None,
+                    primary_name=client.primary_name,
+                    client_type=client.client_type.value,
+                    client_status=client.status.value,
+                    transaction_reference=deal.transaction_reference if deal is not None else None,
+                    transaction_type=deal.transaction_type.value if deal is not None else None,
+                    deal_status=deal.status.value if deal is not None else None,
+                    risk_level=risk.risk_level.value if risk is not None else None,
+                    updated_at=max(client.updated_at, deal.updated_at if deal is not None else client.updated_at),
+                )
+            )
+        return items
+
     @staticmethod
     def create_intake(
         db: Session,
@@ -237,6 +269,10 @@ def create_intake(
     actor: str = "demo_user",
 ) -> tuple[Client, Deal]:
     return IntakeService.create_intake(db=db, payload=payload, actor=actor)
+
+
+def list_intakes(db: Session) -> list[IntakeListItem]:
+    return IntakeService.list_intakes(db=db)
 
 
 def get_intake_by_client_id(

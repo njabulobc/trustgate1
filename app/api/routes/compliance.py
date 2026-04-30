@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.api.deps import DBSession
+from app.api.deps import CurrentUser, DBSession, require_roles
+from app.models.user import User, UserRole
 from app.schemas.compliance import ComplianceDecisionResponse
 from app.services.risk_service import RiskPersistenceError, RiskValidationError
 from app.services.screening_service import (
@@ -23,6 +24,7 @@ router = APIRouter(prefix="/compliance", tags=["compliance"])
 async def create_compliance_decision(
     client_id: int,
     db: DBSession,
+    user: User = Depends(require_roles(UserRole.ADMINISTRATOR, UserRole.COMPLIANCE_OFFICER, UserRole.ANALYST, UserRole.REVIEWER)),
     deal_id: int | None = Query(default=None),
 ) -> ComplianceDecisionResponse:
     try:
