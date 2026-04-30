@@ -41,7 +41,6 @@ export default function LoginPage() {
           <div className="space-y-2 text-sm text-slate-400">
             <p>Origin: {APP_ORIGIN}</p>
             <p>API base: {API_BASE_URL}</p>
-            <p>Bootstrap admin: `admin` / `admin123!`</p>
           </div>
         </section>
         <section className="flex flex-col justify-center">
