@@ -1,20 +1,33 @@
 from __future__ import annotations
 
+import enum
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.client import Client, ClientType
 from app.models.deal import Deal
 from app.models.linked_party import LinkedParty, LinkedPartyRole
+from app.models.platform import (
+    AlertSeverity,
+    AlertStatus,
+    BeneficialOwnershipRecord,
+    CddWorkflow,
+    DocumentLifecycleStatus,
+    KycDocument,
+    KycProfile,
+    MonitoringAlert,
+    ReviewDecision,
+)
 from app.models.risk_assessment import RiskAssessment, RiskLevel
 from app.models.screening import (
     CandidateDisposition,
+    MatchCategory,
     ScreeningCandidate,
     ScreeningResult,
     ScreeningSubjectType,
@@ -33,11 +46,23 @@ class RiskScoringRules:
     high_value_transaction_score: Decimal = Decimal("15.00")
     cross_border_transaction_score: Decimal = Decimal("10.00")
     unknown_beneficial_ownership_score: Decimal = Decimal("20.00")
+    pep_or_rca_exposure_score: Decimal = Decimal("15.00")
+    sanctions_exposure_score: Decimal = Decimal("20.00")
+    cash_transaction_score: Decimal = Decimal("10.00")
+    weak_source_of_funds_score: Decimal = Decimal("12.00")
+    weak_source_of_wealth_score: Decimal = Decimal("10.00")
+    incomplete_documents_score: Decimal = Decimal("10.00")
+    expired_documents_score: Decimal = Decimal("10.00")
+    ownership_complexity_score: Decimal = Decimal("15.00")
+    repeated_alert_score: Decimal = Decimal("10.00")
+    jurisdictional_risk_score: Decimal = Decimal("8.00")
 
     high_value_transaction_threshold: Decimal = Decimal("500000.00")
+    repeated_alert_threshold: int = 2
+    ownership_complexity_threshold: Decimal = Decimal("70.00")
 
     medium_risk_threshold: Decimal = Decimal("20.00")
-    high_risk_threshold: Decimal = Decimal("50.00")
+    high_risk_threshold: Decimal = Decimal("55.00")
 
 
 class RiskServiceError(Exception):
@@ -89,6 +114,20 @@ class RiskService:
             client=client,
             deal_id=deal.id if deal is not None else None,
         )
+        profile = cls._get_kyc_profile(db=db, client_id=client.id)
+        cdd_workflow = cls._get_cdd_workflow(
+            db=db,
+            client_id=client.id,
+            deal_id=deal.id if deal is not None else None,
+        )
+        document_snapshot = cls._get_document_snapshot(db=db, client_id=client.id)
+        ownership_snapshot = cls._get_ownership_snapshot(
+            db=db,
+            client_id=client.id,
+            deal_id=deal.id if deal is not None else None,
+        )
+        alert_snapshot = cls._get_alert_snapshot(db=db, client_id=client.id)
+        screening_snapshot = cls._get_screening_snapshot(db=db, client_id=client.id)
 
         factor_breakdown, total_score = cls._build_factor_breakdown(
             client=client,
@@ -96,7 +135,14 @@ class RiskService:
             primary_client_confirmed_count=primary_client_confirmed_count,
             linked_party_confirmed_count=linked_party_confirmed_count,
             unknown_beneficial_ownership=unknown_beneficial_ownership,
+            profile=profile,
+            cdd_workflow=cdd_workflow,
+            document_snapshot=document_snapshot,
+            ownership_snapshot=ownership_snapshot,
+            alert_snapshot=alert_snapshot,
+            screening_snapshot=screening_snapshot,
         )
+        factor_breakdown = cls._normalize_json_value(factor_breakdown)
         risk_level = cls._determine_risk_level(total_score)
         summary = cls._build_summary(
             client=client,
@@ -212,6 +258,12 @@ class RiskService:
         primary_client_confirmed_count: int,
         linked_party_confirmed_count: int,
         unknown_beneficial_ownership: bool,
+        profile: KycProfile | None,
+        cdd_workflow: CddWorkflow | None,
+        document_snapshot: dict[str, Any],
+        ownership_snapshot: dict[str, Any],
+        alert_snapshot: dict[str, Any],
+        screening_snapshot: dict[str, Any],
     ) -> tuple[dict[str, Any], Decimal]:
         total_score = Decimal("0.00")
         triggered_factors: list[str] = []
@@ -223,7 +275,21 @@ class RiskService:
             and deal.transaction_value >= cls.RULES.high_value_transaction_threshold
         )
         cross_border_transaction_triggered = (
-            deal is not None and deal.is_cross_border is True
+            (deal is not None and deal.is_cross_border is True)
+            or (profile is not None and profile.cross_border_indicator is True)
+        )
+        pep_or_rca_exposure_triggered = screening_snapshot["pep_or_rca_count"] > 0 or (profile.pep_declaration if profile is not None else False)
+        sanctions_exposure_triggered = screening_snapshot["sanctions_count"] > 0
+        cash_transaction_triggered = bool(cdd_workflow and cdd_workflow.payment_method_review and "cash" in cdd_workflow.payment_method_review.lower())
+        weak_source_of_funds_triggered = bool(cdd_workflow and cdd_workflow.source_of_funds_status in {ReviewDecision.REJECTED, ReviewDecision.ESCALATED, ReviewDecision.PENDING})
+        weak_source_of_wealth_triggered = bool(cdd_workflow and cdd_workflow.source_of_wealth_status in {ReviewDecision.REJECTED, ReviewDecision.ESCALATED, ReviewDecision.PENDING})
+        incomplete_documents_triggered = document_snapshot["missing_count"] > 0
+        expired_documents_triggered = document_snapshot["expired_count"] > 0
+        ownership_complexity_triggered = ownership_snapshot["max_complexity_score"] >= cls.RULES.ownership_complexity_threshold
+        repeated_alert_triggered = alert_snapshot["open_count"] >= cls.RULES.repeated_alert_threshold
+        jurisdictional_risk_triggered = bool(
+            (client.nationality and client.nationality.lower() not in {"zimbabwe", "botswana", "zambia", "namibia", "south africa"})
+            or (profile is not None and profile.residency_status and "non" in profile.residency_status.lower())
         )
 
         if confirmed_primary_client_match_triggered:
@@ -245,6 +311,46 @@ class RiskService:
         if unknown_beneficial_ownership:
             total_score += cls.RULES.unknown_beneficial_ownership_score
             triggered_factors.append("unknown_beneficial_ownership")
+
+        if pep_or_rca_exposure_triggered:
+            total_score += cls.RULES.pep_or_rca_exposure_score
+            triggered_factors.append("pep_or_rca_exposure")
+
+        if sanctions_exposure_triggered:
+            total_score += cls.RULES.sanctions_exposure_score
+            triggered_factors.append("sanctions_exposure")
+
+        if cash_transaction_triggered:
+            total_score += cls.RULES.cash_transaction_score
+            triggered_factors.append("cash_transaction")
+
+        if weak_source_of_funds_triggered:
+            total_score += cls.RULES.weak_source_of_funds_score
+            triggered_factors.append("weak_source_of_funds")
+
+        if weak_source_of_wealth_triggered:
+            total_score += cls.RULES.weak_source_of_wealth_score
+            triggered_factors.append("weak_source_of_wealth")
+
+        if incomplete_documents_triggered:
+            total_score += cls.RULES.incomplete_documents_score
+            triggered_factors.append("incomplete_documents")
+
+        if expired_documents_triggered:
+            total_score += cls.RULES.expired_documents_score
+            triggered_factors.append("expired_documents")
+
+        if ownership_complexity_triggered:
+            total_score += cls.RULES.ownership_complexity_score
+            triggered_factors.append("ownership_complexity")
+
+        if repeated_alert_triggered:
+            total_score += cls.RULES.repeated_alert_score
+            triggered_factors.append("repeated_alerts")
+
+        if jurisdictional_risk_triggered:
+            total_score += cls.RULES.jurisdictional_risk_score
+            triggered_factors.append("jurisdictional_risk")
 
         total_score = cls._normalize_decimal(total_score)
 
@@ -321,6 +427,56 @@ class RiskService:
                         "applicable": client.client_type == ClientType.COMPANY,
                     },
                 },
+                "pep_or_rca_exposure": {
+                    "triggered": pep_or_rca_exposure_triggered,
+                    "score": float(cls.RULES.pep_or_rca_exposure_score if pep_or_rca_exposure_triggered else Decimal("0.00")),
+                    "details": {"pep_or_rca_count": screening_snapshot["pep_or_rca_count"], "pep_declaration": profile.pep_declaration if profile is not None else False},
+                },
+                "sanctions_exposure": {
+                    "triggered": sanctions_exposure_triggered,
+                    "score": float(cls.RULES.sanctions_exposure_score if sanctions_exposure_triggered else Decimal("0.00")),
+                    "details": {"sanctions_count": screening_snapshot["sanctions_count"]},
+                },
+                "cash_transaction": {
+                    "triggered": cash_transaction_triggered,
+                    "score": float(cls.RULES.cash_transaction_score if cash_transaction_triggered else Decimal("0.00")),
+                    "details": {"payment_method_review": cdd_workflow.payment_method_review if cdd_workflow is not None else None},
+                },
+                "weak_source_of_funds": {
+                    "triggered": weak_source_of_funds_triggered,
+                    "score": float(cls.RULES.weak_source_of_funds_score if weak_source_of_funds_triggered else Decimal("0.00")),
+                    "details": {"source_of_funds_status": cdd_workflow.source_of_funds_status.value if cdd_workflow is not None else None},
+                },
+                "weak_source_of_wealth": {
+                    "triggered": weak_source_of_wealth_triggered,
+                    "score": float(cls.RULES.weak_source_of_wealth_score if weak_source_of_wealth_triggered else Decimal("0.00")),
+                    "details": {"source_of_wealth_status": cdd_workflow.source_of_wealth_status.value if cdd_workflow is not None else None},
+                },
+                "incomplete_documents": {
+                    "triggered": incomplete_documents_triggered,
+                    "score": float(cls.RULES.incomplete_documents_score if incomplete_documents_triggered else Decimal("0.00")),
+                    "details": document_snapshot,
+                },
+                "expired_documents": {
+                    "triggered": expired_documents_triggered,
+                    "score": float(cls.RULES.expired_documents_score if expired_documents_triggered else Decimal("0.00")),
+                    "details": document_snapshot,
+                },
+                "ownership_complexity": {
+                    "triggered": ownership_complexity_triggered,
+                    "score": float(cls.RULES.ownership_complexity_score if ownership_complexity_triggered else Decimal("0.00")),
+                    "details": ownership_snapshot,
+                },
+                "repeated_alerts": {
+                    "triggered": repeated_alert_triggered,
+                    "score": float(cls.RULES.repeated_alert_score if repeated_alert_triggered else Decimal("0.00")),
+                    "details": alert_snapshot,
+                },
+                "jurisdictional_risk": {
+                    "triggered": jurisdictional_risk_triggered,
+                    "score": float(cls.RULES.jurisdictional_risk_score if jurisdictional_risk_triggered else Decimal("0.00")),
+                    "details": {"nationality": client.nationality, "residency_status": profile.residency_status if profile is not None else None},
+                },
             },
             "triggered_factors": triggered_factors,
             "total_score": float(total_score),
@@ -346,6 +502,16 @@ class RiskService:
             "high_value_transaction": "high-value transaction context",
             "cross_border_transaction": "cross-border transaction context",
             "unknown_beneficial_ownership": "unknown beneficial ownership",
+            "pep_or_rca_exposure": "PEP/RCA exposure",
+            "sanctions_exposure": "sanctions exposure",
+            "cash_transaction": "cash transaction indicator",
+            "weak_source_of_funds": "weak source-of-funds verification",
+            "weak_source_of_wealth": "weak source-of-wealth verification",
+            "incomplete_documents": "incomplete KYC documents",
+            "expired_documents": "expired KYC documents",
+            "ownership_complexity": "ownership complexity",
+            "repeated_alerts": "repeated monitoring alerts",
+            "jurisdictional_risk": "jurisdictional risk",
         }
 
         if triggered_factors:
@@ -486,6 +652,95 @@ class RiskService:
         return beneficial_owner_count == 0
 
     @staticmethod
+    def _get_kyc_profile(db: Session, *, client_id: int) -> KycProfile | None:
+        stmt = select(KycProfile).where(KycProfile.client_id == client_id)
+        return db.execute(stmt).scalar_one_or_none()
+
+    @staticmethod
+    def _get_cdd_workflow(
+        db: Session,
+        *,
+        client_id: int,
+        deal_id: int | None,
+    ) -> CddWorkflow | None:
+        stmt = select(CddWorkflow).where(CddWorkflow.client_id == client_id)
+        if deal_id is None:
+            stmt = stmt.order_by(CddWorkflow.updated_at.desc(), CddWorkflow.id.desc())
+        else:
+            stmt = stmt.where(or_(CddWorkflow.deal_id == deal_id, CddWorkflow.deal_id.is_(None))).order_by(
+                CddWorkflow.updated_at.desc(),
+                CddWorkflow.id.desc(),
+            )
+        return db.execute(stmt).scalars().first()
+
+    @staticmethod
+    def _get_document_snapshot(db: Session, *, client_id: int) -> dict[str, Any]:
+        documents = db.execute(select(KycDocument).where(KycDocument.client_id == client_id)).scalars().all()
+        return {
+            "total_count": len(documents),
+            "verified_count": sum(1 for doc in documents if doc.lifecycle_status == DocumentLifecycleStatus.VERIFIED),
+            "expired_count": sum(1 for doc in documents if doc.lifecycle_status == DocumentLifecycleStatus.EXPIRED),
+            "missing_count": sum(
+                1
+                for doc in documents
+                if doc.lifecycle_status
+                in {
+                    DocumentLifecycleStatus.REJECTED,
+                    DocumentLifecycleStatus.RESUBMISSION_REQUIRED,
+                }
+            ),
+        }
+
+    @staticmethod
+    def _get_ownership_snapshot(
+        db: Session,
+        *,
+        client_id: int,
+        deal_id: int | None,
+    ) -> dict[str, Any]:
+        stmt = select(BeneficialOwnershipRecord).where(BeneficialOwnershipRecord.client_id == client_id)
+        if deal_id is not None:
+            stmt = stmt.where(or_(BeneficialOwnershipRecord.deal_id == deal_id, BeneficialOwnershipRecord.deal_id.is_(None)))
+        records = db.execute(stmt).scalars().all()
+        max_complexity = max((record.complexity_score or Decimal("0.00") for record in records), default=Decimal("0.00"))
+        return {
+            "count": len(records),
+            "max_complexity_score": max_complexity,
+            "control_without_ownership_count": sum(1 for record in records if record.control_without_ownership),
+        }
+
+    @staticmethod
+    def _get_alert_snapshot(db: Session, *, client_id: int) -> dict[str, Any]:
+        alerts = db.execute(
+            select(MonitoringAlert).where(
+                MonitoringAlert.client_id == client_id,
+                MonitoringAlert.status != AlertStatus.CLOSED,
+            )
+        ).scalars().all()
+        return {
+            "open_count": len(alerts),
+            "critical_count": sum(1 for alert in alerts if alert.severity == AlertSeverity.CRITICAL),
+        }
+
+    @staticmethod
+    def _get_screening_snapshot(db: Session, *, client_id: int) -> dict[str, Any]:
+        candidates = db.execute(
+            select(ScreeningCandidate)
+            .join(ScreeningResult, ScreeningCandidate.screening_result_id == ScreeningResult.id)
+            .outerjoin(LinkedParty, ScreeningResult.linked_party_id == LinkedParty.id)
+            .where(
+                or_(ScreeningResult.client_id == client_id, LinkedParty.client_id == client_id),
+                ScreeningCandidate.disposition.in_(
+                    [CandidateDisposition.CONFIRMED_MATCH, CandidateDisposition.NEEDS_EDD]
+                ),
+            )
+        ).scalars().all()
+        return {
+            "pep_or_rca_count": sum(1 for candidate in candidates if candidate.match_category in {MatchCategory.PEP, MatchCategory.RCA}),
+            "sanctions_count": sum(1 for candidate in candidates if (candidate.dataset or "").lower().find("sanction") >= 0),
+        }
+
+    @staticmethod
     def _get_latest_assessment_for_context(
         db: Session,
         *,
@@ -512,6 +767,22 @@ class RiskService:
     @staticmethod
     def _format_decimal(value: Decimal) -> str:
         return f"{RiskService._normalize_decimal(value):.2f}"
+
+    @staticmethod
+    def _normalize_json_value(value: Any) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, dict):
+            return {str(key): RiskService._normalize_json_value(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple, set)):
+            return [RiskService._normalize_json_value(item) for item in value]
+        if isinstance(value, Decimal):
+            return float(RiskService._normalize_decimal(value))
+        if isinstance(value, enum.Enum):
+            return value.value
+        if isinstance(value, (datetime, date)):
+            return value.isoformat()
+        return value
 
 
 def assess_risk(

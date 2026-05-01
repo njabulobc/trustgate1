@@ -3,7 +3,21 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html {
+    @apply bg-slate-100;
+  }
+
   body {
-    @apply text-slate-900;
+    @apply bg-slate-100 text-slate-900 antialiased;
+    font-family: "Segoe UI", "Inter", sans-serif;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #94a3b8 transparent;
   }
 }

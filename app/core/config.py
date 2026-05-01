@@ -16,17 +16,46 @@ class Settings(BaseSettings):
     )
 
     CORS_ALLOW_ORIGINS: list[str] = Field(
-            default_factory=lambda: ["http://localhost:5173"],
-            description=(
-                "Allowed CORS origins. In production, set this explicitly via environment "
-                "variables (e.g., CORS_ALLOW_ORIGINS='[\"https://app.example.com\"]' or a "
-                "comma-separated list)."
-            ),
-        )
+    default_factory=lambda: ["*"],
+    description="Allow all CORS origins.",
+    )
+
     CORS_ALLOW_CREDENTIALS: bool = Field(
-            default=False,
-            description="Whether CORS should allow credentials (cookies/Authorization headers).",
-        )
+        default=False,
+        description="Disable credentials when allowing all origins.",
+    )
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(
+        default=480,
+        description="Lifetime for issued JWT access tokens in minutes.",
+    )
+    JWT_SECRET_KEY: SecretStr = Field(
+        default=SecretStr("trustgate-dev-secret-change-me"),
+        description="HMAC secret used to sign local JWT access tokens.",
+    )
+    JWT_ISSUER: str = Field(
+        default="trustgate",
+        description="JWT issuer claim.",
+    )
+    DOCUMENT_UPLOAD_DIR: str = Field(
+        default="./uploads",
+        description="Local upload directory for KYC and supporting documents.",
+    )
+    BOOTSTRAP_ADMIN_USERNAME: str = Field(
+        default="admin",
+        description="Seeded local administrator username.",
+    )
+    BOOTSTRAP_ADMIN_PASSWORD: SecretStr = Field(
+        default=SecretStr("admin123!"),
+        description="Seeded local administrator password.",
+    )
+    BOOTSTRAP_ADMIN_EMAIL: str = Field(
+        default="admin@trustgate.local",
+        description="Seeded local administrator email.",
+    )
+    BOOTSTRAP_ADMIN_FULL_NAME: str = Field(
+        default="TrustGate Administrator",
+        description="Seeded local administrator display name.",
+    )
 
     @field_validator("CORS_ALLOW_ORIGINS", mode="before")
     @classmethod
@@ -65,6 +94,11 @@ class Settings(BaseSettings):
         ge=0.0,
         le=1.0,
         description="Score threshold treated as a high-confidence screening match.",
+    )
+    DEFAULT_MONITORING_INTERVAL_DAYS: int = Field(
+        default=30,
+        ge=1,
+        description="Default periodic monitoring interval in days.",
     )
 
 
