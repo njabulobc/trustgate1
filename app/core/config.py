@@ -16,20 +16,14 @@ class Settings(BaseSettings):
     )
 
     CORS_ALLOW_ORIGINS: list[str] = Field(
-            default_factory=lambda: [
-                "http://localhost:5173", "http://127.0.0.1:5173", "https://trustgate1-1.onrender.com",
+    default_factory=lambda: ["*"],
+    description="Allow all CORS origins.",
+    )
 
-            ],
-            description=(
-                "Allowed CORS origins. In production, set this explicitly via environment "
-                "variables (e.g., CORS_ALLOW_ORIGINS='[\"https://app.example.com\"]' or a "
-                "comma-separated list)."
-            ),
-        )
     CORS_ALLOW_CREDENTIALS: bool = Field(
-            default=False,
-            description="Whether CORS should allow credentials (cookies/Authorization headers).",
-        )
+        default=False,
+        description="Disable credentials when allowing all origins.",
+    )
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(
         default=480,
         description="Lifetime for issued JWT access tokens in minutes.",
