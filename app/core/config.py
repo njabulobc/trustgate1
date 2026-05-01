@@ -17,7 +17,7 @@ class Settings(BaseSettings):
 
     CORS_ALLOW_ORIGINS: list[str] = Field(
             default_factory=lambda: [
-                "http://localhost:5173",            "https://trustgate1-1.onrender.com",
+                "http://localhost:5173", "http://127.0.0.1:5173", "https://trustgate1-1.onrender.com",
 
             ],
             description=(
