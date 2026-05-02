@@ -27,7 +27,20 @@ function resolveLocalApiBaseUrl(): string {
   return `http://${host}:8000`;
 }
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? resolveLocalApiBaseUrl();
+function resolveApiBaseUrl(): string {
+  const configuredBase = import.meta.env.VITE_API_BASE_URL;
+  if (configuredBase) {
+    return configuredBase.replace(/\/$/, '');
+  }
+
+  if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
+    return '/api';
+  }
+
+  return resolveLocalApiBaseUrl();
+}
+
+const API_BASE = resolveApiBaseUrl();
 
 export const API_BASE_URL = API_BASE;
 export const APP_ORIGIN = typeof window === 'undefined' ? 'server' : window.location.origin;
