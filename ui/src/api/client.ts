@@ -65,6 +65,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(text || `Request failed: ${response.status}`);
   }
 
+  if (response.status === 204) return null as T;
   return (await response.json()) as T;
 }
 
@@ -533,6 +534,9 @@ export const api = {
   createRelationship: (payload: LinkedPartyPayload) => request<LinkedParty>('/relationships', { method: 'POST', body: JSON.stringify(payload) }),
   patchRelationship: (linkedPartyId: number, payload: Partial<LinkedPartyPayload>) =>
     request<LinkedParty>(`/relationships/${linkedPartyId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  deleteRelationship: async (linkedPartyId: number) => {
+    await request<null>(`/relationships/${linkedPartyId}`, { method: 'DELETE' });
+  },
 
   listOwnership: (clientId: number) => request<OwnershipRecord[]>(`/ownership/clients/${clientId}`),
   getOwnershipGraph: (clientId: number) => request<OwnershipGraphNode[]>(`/ownership/clients/${clientId}/graph`),
