@@ -1,6 +1,8 @@
 import { useState } from 'react';
 
 import { api, ReportExportResponse } from '../api/client';
+import { useAuth } from '../auth/AuthContext';
+import { hasCapability } from '../auth/permissions';
 import { Button, PageHeader, Panel, Select, TextArea } from '../components/ui';
 
 const reportOptions = [
@@ -17,6 +19,8 @@ export default function ReportsPage() {
   const [reportName, setReportName] = useState(reportOptions[0]);
   const [report, setReport] = useState<ReportExportResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { user } = useAuth();
+  const canManage = hasCapability(user?.role, 'export_reports', user?.capabilities);
 
   async function handleGenerate(format: 'json' | 'csv') {
     setError(null);
@@ -31,6 +35,7 @@ export default function ReportsPage() {
     <div className="space-y-6">
       <PageHeader title="Reports" description="Operational and audit-facing outputs generated from KYC, documents, screening, risk, EDD, monitoring, and user activity." />
       {error ? <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p> : null}
+      {!canManage ? <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-700">You have read-only access to this page.</p> : null}
       <Panel title="Generate Report" subtitle="Query live operational data and export JSON or CSV.">
         <div className="flex flex-col gap-3 md:flex-row md:items-end">
           <div className="min-w-[260px]">
@@ -39,8 +44,8 @@ export default function ReportsPage() {
               {reportOptions.map((option) => <option key={option} value={option}>{option}</option>)}
             </Select>
           </div>
-          <Button onClick={() => handleGenerate('json')}>Generate JSON</Button>
-          <Button tone="secondary" onClick={() => handleGenerate('csv')}>Generate CSV</Button>
+          <Button onClick={() => handleGenerate('json')} disabled={!canManage}>Generate JSON</Button>
+          <Button tone="secondary" onClick={() => handleGenerate('csv')} disabled={!canManage}>Generate CSV</Button>
         </div>
       </Panel>
       <Panel title="Report Output" subtitle="Preview rows and exported content for analyst and audit workflows.">

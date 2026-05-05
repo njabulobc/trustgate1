@@ -1,6 +1,8 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 
 import { api, CandidateDisposition, IntakeListItem, ScreeningResult } from '../api/client';
+import { useAuth } from '../auth/AuthContext';
+import { hasCapability } from '../auth/permissions';
 import { Button, PageHeader, Panel, Select, TextArea } from '../components/ui';
 
 export default function ScreeningPage() {
@@ -11,6 +13,8 @@ export default function ScreeningPage() {
   const [disposition, setDisposition] = useState<CandidateDisposition>('pending');
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const { user } = useAuth();
+  const canResolve = hasCapability(user?.role, 'resolve_screening', user?.capabilities);
 
   const candidates = useMemo(() => results.flatMap((result) => result.candidates), [results]);
 
@@ -55,7 +59,8 @@ export default function ScreeningPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Screening" description="Run provider screening for clients and linked parties, review matches, and disposition candidates into standard review or EDD escalation." actions={<Button onClick={handleRun}>Run screening</Button>} />
+      <PageHeader title="Screening" description="Run provider screening for clients and linked parties, review matches, and disposition candidates into standard review or EDD escalation." actions={canResolve ? <Button onClick={handleRun}>Run screening</Button> : undefined} />
+      {!canResolve ? <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-700">You have read-only access to this page.</p> : null}
       {error ? <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p> : null}
       <div className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
         <Panel title="Disposition" subtitle="Review a candidate and record the analyst outcome.">
@@ -87,7 +92,7 @@ export default function ScreeningPage() {
                 <label className="mb-2 block text-sm font-medium text-slate-700">Reason</label>
                 <TextArea rows={4} value={reason} onChange={(event) => setReason(event.target.value)} />
               </div>
-              <Button className="w-full">Apply disposition</Button>
+              <Button className="w-full" disabled={!canResolve}>Apply disposition</Button>
             </form>
           </div>
         </Panel>

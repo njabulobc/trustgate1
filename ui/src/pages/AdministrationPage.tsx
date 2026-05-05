@@ -1,6 +1,8 @@
 import { FormEvent, useEffect, useState } from 'react';
 
 import { api, AdminOverview } from '../api/client';
+import { useAuth } from '../auth/AuthContext';
+import { hasCapability } from '../auth/permissions';
 import { Button, PageHeader, Panel, Select, TextArea } from '../components/ui';
 
 export default function AdministrationPage() {
@@ -8,6 +10,8 @@ export default function AdministrationPage() {
   const [settingKey, setSettingKey] = useState('monitoring');
   const [settingValue, setSettingValue] = useState('{"interval_days": 30}');
   const [error, setError] = useState<string | null>(null);
+  const { user } = useAuth();
+  const canManage = hasCapability(user?.role, 'manage_admin', user?.capabilities);
 
   function refresh() {
     api.getAdminOverview().then(setOverview).catch((loadError) => setError((loadError as Error).message));
@@ -31,6 +35,7 @@ export default function AdministrationPage() {
   return (
     <div className="space-y-6">
       <PageHeader title="Administration" description="Manage users, role assignments, configurable checklists, trigger settings, monitoring intervals, and audit visibility." />
+      {!canManage ? <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-700">You have read-only access to this page.</p> : null}
       {error ? <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p> : null}
       <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
         <Panel title="Configuration" subtitle="Update module settings stored in platform configuration.">
@@ -45,7 +50,7 @@ export default function AdministrationPage() {
               <label className="mb-2 block text-sm font-medium text-slate-700">JSON value</label>
               <TextArea rows={8} value={settingValue} onChange={(event) => setSettingValue(event.target.value)} />
             </div>
-            <Button className="w-full">Save setting</Button>
+            <Button className="w-full" disabled={!canManage}>Save setting</Button>
           </form>
         </Panel>
 
