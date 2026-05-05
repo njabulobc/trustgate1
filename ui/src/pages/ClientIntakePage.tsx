@@ -1,6 +1,8 @@
 import { FormEvent, useEffect, useState } from 'react';
 
 import { api, ClientType, DealTransactionType, IntakeListItem } from '../api/client';
+import { useAuth } from '../auth/AuthContext';
+import { hasCapability } from '../auth/permissions';
 import { Button, PageHeader, Panel, Select, TextInput } from '../components/ui';
 
 export default function ClientIntakePage() {
@@ -14,6 +16,8 @@ export default function ClientIntakePage() {
   const [reference, setReference] = useState('');
   const [location, setLocation] = useState('');
   const [value, setValue] = useState('0');
+  const { user } = useAuth();
+  const canEdit = hasCapability(user?.role, 'edit_intake', user?.capabilities);
 
   function refresh() {
     api.listIntakes().then(setItems).catch((loadError) => setError((loadError as Error).message));
@@ -25,6 +29,7 @@ export default function ClientIntakePage() {
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
+    if (!canEdit) return;
     setLoading(true);
     setError(null);
     try {
@@ -56,6 +61,7 @@ export default function ClientIntakePage() {
   return (
     <div className="space-y-6">
       <PageHeader title="Client Intake" description="Create or update clients and deal records before they enter structured KYC onboarding." />
+      {!canEdit ? <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-700">You have read-only access to this page.</p> : null}
       {error ? <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p> : null}
       <div className="grid gap-6 xl:grid-cols-[420px_minmax(0,1fr)]">
         <Panel title="New Intake" subtitle="Create a new client and initial deal context.">
@@ -98,7 +104,7 @@ export default function ClientIntakePage() {
               <label className="mb-2 block text-sm font-medium text-slate-700">Transaction value</label>
               <TextInput type="number" value={value} onChange={(event) => setValue(event.target.value)} />
             </div>
-            <Button disabled={loading} className="w-full">{loading ? 'Saving…' : 'Create intake'}</Button>
+            <Button disabled={loading || !canEdit} className="w-full">{loading ? 'Saving…' : 'Create intake'}</Button>
           </form>
         </Panel>
 

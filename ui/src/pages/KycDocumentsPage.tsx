@@ -1,6 +1,8 @@
 import { ChangeEvent, FormEvent, useEffect, useState } from 'react';
 
 import { api, DocumentChecklistSummary, DocumentLifecycleStatus, DocumentRecord, IntakeListItem } from '../api/client';
+import { useAuth } from '../auth/AuthContext';
+import { hasCapability } from '../auth/permissions';
 import { Button, PageHeader, Panel, Select, TextInput } from '../components/ui';
 
 export default function KycDocumentsPage() {
@@ -11,6 +13,8 @@ export default function KycDocumentsPage() {
   const [documentType, setDocumentType] = useState('national_id');
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { user } = useAuth();
+  const canEdit = hasCapability(user?.role, 'edit_kyc', user?.capabilities);
 
   function refresh(clientId: number) {
     Promise.all([api.listDocuments(clientId), api.getDocumentChecklist(clientId)])
@@ -34,7 +38,7 @@ export default function KycDocumentsPage() {
 
   async function handleUpload(event: FormEvent) {
     event.preventDefault();
-    if (!selectedClientId || !file) return;
+    if (!selectedClientId || !file || !canEdit) return;
     setError(null);
     try {
       await api.uploadDocument(selectedClientId, { document_type: documentType, file });
@@ -46,6 +50,7 @@ export default function KycDocumentsPage() {
   }
 
   async function handleStatusChange(documentId: number, status: DocumentLifecycleStatus) {
+    if (!canEdit) return;
     try {
       await api.reviewDocument(documentId, { lifecycle_status: status });
       if (selectedClientId) refresh(selectedClientId);
@@ -57,6 +62,7 @@ export default function KycDocumentsPage() {
   return (
     <div className="space-y-6">
       <PageHeader title="KYC Documents" description="Upload supporting documents, track lifecycle states, and identify gaps before review closure." />
+      {!canEdit ? <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-700">You have read-only access to this page.</p> : null}
       {error ? <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p> : null}
       <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
         <Panel title="Upload" subtitle="Attach supporting evidence and maintain the checklist lifecycle.">
@@ -76,7 +82,7 @@ export default function KycDocumentsPage() {
                 <label className="mb-2 block text-sm font-medium text-slate-700">File</label>
                 <input type="file" onChange={(event: ChangeEvent<HTMLInputElement>) => setFile(event.target.files?.[0] ?? null)} />
               </div>
-              <Button disabled={!file}>Upload document</Button>
+              <Button disabled={!file || !canEdit}>Upload document</Button>
             </form>
             <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
               <p className="font-medium text-slate-900">Checklist summary</p>
@@ -111,7 +117,7 @@ export default function KycDocumentsPage() {
                     <td>{document.lifecycle_status}</td>
                     <td>{document.expiry_date ?? '—'}</td>
                     <td>
-                      <Select value={document.lifecycle_status} onChange={(event) => handleStatusChange(document.id, event.target.value as DocumentLifecycleStatus)}>
+                      <Select value={document.lifecycle_status} disabled={!canEdit} onChange={(event) => handleStatusChange(document.id, event.target.value as DocumentLifecycleStatus)}>
                         <option value="submitted">Submitted</option>
                         <option value="under_review">Under review</option>
                         <option value="verified">Verified</option>

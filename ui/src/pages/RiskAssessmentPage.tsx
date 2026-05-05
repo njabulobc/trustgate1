@@ -1,6 +1,8 @@
 import { FormEvent, useEffect, useState } from 'react';
 
 import { api, IntakeListItem, RiskAssessmentResponse } from '../api/client';
+import { useAuth } from '../auth/AuthContext';
+import { hasCapability } from '../auth/permissions';
 import { Button, PageHeader, Panel, Select, TextArea } from '../components/ui';
 
 export default function RiskAssessmentPage() {
@@ -10,6 +12,8 @@ export default function RiskAssessmentPage() {
   const [overrideLevel, setOverrideLevel] = useState('high');
   const [justification, setJustification] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const { user } = useAuth();
+  const canManage = hasCapability(user?.role, 'assess_risk', user?.capabilities);
 
   useEffect(() => {
     api.listIntakes().then((items) => {
@@ -48,7 +52,8 @@ export default function RiskAssessmentPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Risk Assessment" description="Explainable scoring across screening, documents, ownership, CDD, monitoring, and analyst override." actions={<Button onClick={handleRunRisk}>Run risk assessment</Button>} />
+      <PageHeader title="Risk Assessment" description="Explainable scoring across screening, documents, ownership, CDD, monitoring, and analyst override." actions={canManage ? <Button onClick={handleRunRisk}>Run risk assessment</Button> : undefined} />
+      {!canManage ? <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-700">You have read-only access to this page.</p> : null}
       {error ? <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p> : null}
       <div className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
         <Panel title="Override" subtitle="Manual override requires explicit justification and is fully auditable.">
@@ -72,7 +77,7 @@ export default function RiskAssessmentPage() {
                 <label className="mb-2 block text-sm font-medium text-slate-700">Justification</label>
                 <TextArea rows={4} value={justification} onChange={(event) => setJustification(event.target.value)} />
               </div>
-              <Button className="w-full">Record override</Button>
+              <Button className="w-full" disabled={!canManage}>Record override</Button>
             </form>
           </div>
         </Panel>

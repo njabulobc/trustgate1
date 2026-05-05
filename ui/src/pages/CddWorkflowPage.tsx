@@ -1,6 +1,8 @@
 import { FormEvent, useEffect, useState } from 'react';
 
 import { api, CddWorkflowPayload, IntakeListItem, VerificationStatus, WorkflowStatus } from '../api/client';
+import { useAuth } from '../auth/AuthContext';
+import { hasCapability } from '../auth/permissions';
 import { Button, PageHeader, Panel, Select, TextArea } from '../components/ui';
 
 const emptyWorkflow: CddWorkflowPayload = {
@@ -25,6 +27,8 @@ export default function CddWorkflowPage() {
   const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
   const [form, setForm] = useState<CddWorkflowPayload>(emptyWorkflow);
   const [error, setError] = useState<string | null>(null);
+  const { user } = useAuth();
+  const canEdit = hasCapability(user?.role, 'assess_risk', user?.capabilities);
 
   useEffect(() => {
     api.listIntakes().then((items) => {
@@ -34,7 +38,7 @@ export default function CddWorkflowPage() {
   }, [selectedClientId]);
 
   useEffect(() => {
-    if (!selectedClientId) return;
+    if (!selectedClientId || !canEdit) return;
     api.getCddWorkflow(selectedClientId)
       .then((workflow) => {
         setForm({
@@ -59,7 +63,7 @@ export default function CddWorkflowPage() {
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    if (!selectedClientId) return;
+    if (!selectedClientId || !canEdit) return;
     setError(null);
     try {
       await api.upsertCddWorkflow(selectedClientId, form);
@@ -82,6 +86,7 @@ export default function CddWorkflowPage() {
   return (
     <div className="space-y-6">
       <PageHeader title="CDD Workflow" description="Structured due diligence review for source of funds, source of wealth, payment methods, expected activity, and analyst decisions." />
+      {!canEdit ? <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-700">You have read-only access to this page.</p> : null}
       {error ? <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p> : null}
       <Panel title="CDD Case" subtitle="One structured workflow per client context.">
         <div className="mb-4 max-w-sm">
@@ -162,7 +167,7 @@ export default function CddWorkflowPage() {
             <TextArea rows={3} value={form.reviewer_notes ?? ''} onChange={(event) => setForm((current) => ({ ...current, reviewer_notes: event.target.value || null }))} />
           </div>
           <div className="md:col-span-2">
-            <Button>Save CDD workflow</Button>
+            <Button disabled={!canEdit}>Save CDD workflow</Button>
           </div>
         </form>
       </Panel>
