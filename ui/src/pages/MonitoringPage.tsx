@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 
 import { api, IntakeListItem, MonitoringAlert, MonitoringEvent } from '../api/client';
+import { useAuth } from '../auth/AuthContext';
+import { hasCapability } from '../auth/permissions';
 import { Button, PageHeader, Panel, Select } from '../components/ui';
 
 export default function MonitoringPage() {
@@ -9,6 +11,8 @@ export default function MonitoringPage() {
   const [alerts, setAlerts] = useState<MonitoringAlert[]>([]);
   const [events, setEvents] = useState<MonitoringEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const { user } = useAuth();
+  const canManage = hasCapability(user?.role, 'manage_monitoring', user?.capabilities);
 
   function refresh(clientId?: number | null) {
     Promise.all([api.listAlerts(clientId), api.listMonitoringEvents(clientId)])
@@ -40,7 +44,8 @@ export default function MonitoringPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Monitoring & Alerts" description="Periodic or event-driven monitoring, generated alert queue, and escalation tracking." actions={<Button onClick={runMonitoring}>Run monitoring</Button>} />
+      <PageHeader title="Monitoring & Alerts" description="Periodic or event-driven monitoring, generated alert queue, and escalation tracking." actions={canManage ? <Button onClick={runMonitoring}>Run monitoring</Button> : undefined} />
+      {!canManage ? <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-700">You have read-only access to this page.</p> : null}
       {error ? <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p> : null}
       <div className="max-w-sm">
         <label className="mb-2 block text-sm font-medium text-slate-700">Client</label>

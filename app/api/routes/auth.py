@@ -6,23 +6,43 @@ from app.api.deps import CurrentUser, DBSession, require_roles
 from app.models.user import User, UserRole
 from app.schemas.auth import AuthTokenResponse, LoginRequest, UserCreate, UserRead, UserUpdate
 from app.services.auth_service import AuthenticationFailedError, AuthService, UserConflictError
+from app.services.permissions import get_role_capabilities
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+def to_user_read(user: User) -> UserRead:
+    user_read = UserRead.model_validate(user)
+    return user_read.model_copy(
+        update={
+            "capabilities": get_role_capabilities(user.role)
+        }
+    )
 
 
 @router.post("/login", response_model=AuthTokenResponse, status_code=status.HTTP_200_OK)
 def login(payload: LoginRequest, db: DBSession) -> AuthTokenResponse:
     try:
-        principal = AuthService.authenticate(db=db, username=payload.username, password=payload.password)
+        principal = AuthService.authenticate(
+            db=db,
+            username=payload.username,
+            password=payload.password,
+        )
     except AuthenticationFailedError as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(exc),
+        ) from exc
 
-    return AuthTokenResponse(access_token=principal.token, user=UserRead.model_validate(principal.user))
+    return AuthTokenResponse(
+        access_token=principal.token,
+        user=to_user_read(principal.user),
+    )
 
 
 @router.get("/me", response_model=UserRead, status_code=status.HTTP_200_OK)
 def read_current_user(user: CurrentUser) -> UserRead:
-    return UserRead.model_validate(user)
+    return to_user_read(user)
 
 
 @router.get(
@@ -34,7 +54,7 @@ def list_users(
     db: DBSession,
     user: User = Depends(require_roles(UserRole.ADMINISTRATOR)),
 ) -> list[UserRead]:
-    return [UserRead.model_validate(item) for item in AuthService.list_users(db=db)]
+    return [to_user_read(item) for item in AuthService.list_users(db=db)]
 
 
 @router.post(
@@ -58,8 +78,12 @@ def create_user(
             actor=user,
         )
     except UserConflictError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    return UserRead.model_validate(created)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+
+    return to_user_read(created)
 
 
 @router.patch(
@@ -81,6 +105,14 @@ def update_user(
             actor=user,
         )
     except (UserConflictError, AuthenticationFailedError) as exc:
-        status_code = status.HTTP_409_CONFLICT if isinstance(exc, UserConflictError) else status.HTTP_404_NOT_FOUND
-        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
-    return UserRead.model_validate(updated)
+        status_code = (
+            status.HTTP_409_CONFLICT
+            if isinstance(exc, UserConflictError)
+            else status.HTTP_404_NOT_FOUND
+        )
+        raise HTTPException(
+            status_code=status_code,
+            detail=str(exc),
+        ) from exc
+
+    return to_user_read(updated)
