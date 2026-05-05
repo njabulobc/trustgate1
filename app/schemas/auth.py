@@ -24,6 +24,7 @@ class UserRead(BaseModel):
     last_login_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    capabilities: list[str] = []
 
 
 class AuthTokenResponse(BaseModel):

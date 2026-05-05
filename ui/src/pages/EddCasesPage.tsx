@@ -1,6 +1,8 @@
 import { FormEvent, useEffect, useState } from 'react';
 
 import { api, EddCase, EddCasePayload, EddCasePriority, EddCaseStatus, IntakeListItem } from '../api/client';
+import { useAuth } from '../auth/AuthContext';
+import { hasCapability } from '../auth/permissions';
 import { Button, PageHeader, Panel, Select, TextArea, TextInput } from '../components/ui';
 
 const emptyCase: EddCasePayload = {
@@ -26,6 +28,8 @@ export default function EddCasesPage() {
   const [cases, setCases] = useState<EddCase[]>([]);
   const [form, setForm] = useState<EddCasePayload>(emptyCase);
   const [error, setError] = useState<string | null>(null);
+  const { user } = useAuth();
+  const canManage = hasCapability(user?.role, 'manage_edd', user?.capabilities);
 
   function refresh(clientId?: number | null) {
     api.listEddCases(clientId).then(setCases).catch((loadError) => setError((loadError as Error).message));
@@ -66,6 +70,7 @@ export default function EddCasesPage() {
   return (
     <div className="space-y-6">
       <PageHeader title="EDD Cases" description="Generalized enhanced due diligence case management across screening, ownership, transaction, and monitoring triggers." />
+      {!canManage ? <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-700">You have read-only access to this page.</p> : null}
       {error ? <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p> : null}
       <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
         <Panel title="New EDD Case" subtitle="Open a generalized EDD case from any risk or workflow trigger.">
@@ -86,7 +91,7 @@ export default function EddCasesPage() {
             </Select>
             <TextArea rows={4} placeholder="Trigger reason" value={form.trigger_reason} onChange={(event) => setForm((current) => ({ ...current, trigger_reason: event.target.value }))} />
             <TextArea rows={3} placeholder="Required actions JSON or notes" value={JSON.stringify(form.required_actions ?? {}, null, 2)} onChange={(event) => setForm((current) => ({ ...current, required_actions: event.target.value ? { note: event.target.value } : null }))} />
-            <Button className="w-full">Create EDD case</Button>
+            <Button className="w-full" disabled={!canManage}>Create EDD case</Button>
           </form>
         </Panel>
 
@@ -109,7 +114,7 @@ export default function EddCasesPage() {
                     <td className="max-w-sm">{caseItem.trigger_reason}</td>
                     <td>{caseItem.priority}</td>
                     <td>
-                      <Select value={caseItem.status} onChange={(event) => handleStatusChange(caseItem.id, event.target.value as EddCaseStatus)}>
+                      <Select value={caseItem.status} disabled={!canManage} onChange={(event) => handleStatusChange(caseItem.id, event.target.value as EddCaseStatus)}>
                         <option value="open">Open</option>
                         <option value="assigned">Assigned</option>
                         <option value="in_review">In review</option>

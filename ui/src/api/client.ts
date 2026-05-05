@@ -78,6 +78,7 @@ export type User = {
   last_login_at: string | null;
   created_at: string;
   updated_at: string;
+  capabilities?: string[];
 };
 
 export type AuthResponse = {
@@ -155,6 +156,7 @@ export type IntakeListItem = {
   deal_status: DealStatus | null;
   risk_level: RiskLevel | null;
   updated_at: string;
+  capabilities?: string[];
 };
 
 export type LinkedParty = {
@@ -198,6 +200,7 @@ export type KycProfile = {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  capabilities?: string[];
 };
 
 export type KycProfilePayload = Omit<KycProfile, 'id' | 'client_id' | 'created_at' | 'updated_at'>;
@@ -223,6 +226,7 @@ export type DocumentRecord = {
   created_by_user_id: number | null;
   created_at: string;
   updated_at: string;
+  capabilities?: string[];
 };
 
 export type DocumentChecklistSummary = {
@@ -253,6 +257,7 @@ export type CddWorkflow = {
   reviewer_notes: string | null;
   created_at: string;
   updated_at: string;
+  capabilities?: string[];
 };
 
 export type CddWorkflowPayload = Omit<CddWorkflow, 'id' | 'client_id' | 'created_at' | 'updated_at'>;
@@ -279,6 +284,7 @@ export type OwnershipRecord = {
   complexity_score: string | null;
   created_at: string;
   updated_at: string;
+  capabilities?: string[];
 };
 
 export type OwnershipGraphNode = {
@@ -311,6 +317,7 @@ export type ScreeningCandidate = {
   candidate_payload: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
+  capabilities?: string[];
 };
 
 export type ScreeningResult = {
@@ -379,6 +386,7 @@ export type EddCase = {
   due_at: string | null;
   created_at: string;
   updated_at: string;
+  capabilities?: string[];
 };
 
 export type EddCasePayload = Omit<EddCase, 'id' | 'client_id' | 'created_at' | 'updated_at'>;
@@ -401,6 +409,7 @@ export type MonitoringAlert = {
   resolved_at: string | null;
   created_at: string;
   updated_at: string;
+  capabilities?: string[];
 };
 
 export type MonitoringEvent = {
@@ -428,6 +437,7 @@ export type WorkbenchItem = {
   severity_or_priority: string | null;
   assigned_user_id: number | null;
   updated_at: string;
+  capabilities?: string[];
 };
 
 export type WorkbenchQueueResponse = {
@@ -447,6 +457,7 @@ export type AppSetting = {
   description: string | null;
   updated_by_user_id: number | null;
   updated_at: string;
+  capabilities?: string[];
 };
 
 export type AuditEvent = {

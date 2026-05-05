@@ -1,6 +1,8 @@
 import { FormEvent, useEffect, useState } from 'react';
 
 import { api, IntakeListItem, KycOnboardingStatus, KycProfilePayload, TaxClearanceStatus } from '../api/client';
+import { useAuth } from '../auth/AuthContext';
+import { hasCapability } from '../auth/permissions';
 import { Button, PageHeader, Panel, Select, TextArea, TextInput } from '../components/ui';
 
 const emptyProfile: KycProfilePayload = {
@@ -31,6 +33,8 @@ export default function KycOnboardingPage() {
   const [form, setForm] = useState<KycProfilePayload>(emptyProfile);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const { user } = useAuth();
+  const canEdit = hasCapability(user?.role, 'edit_kyc', user?.capabilities);
 
   useEffect(() => {
     api.listIntakes().then((items) => {
@@ -75,7 +79,7 @@ export default function KycOnboardingPage() {
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    if (!selectedClientId) return;
+    if (!selectedClientId || !canEdit) return;
     setSaving(true);
     setError(null);
     try {
@@ -90,6 +94,7 @@ export default function KycOnboardingPage() {
   return (
     <div className="space-y-6">
       <PageHeader title="KYC Onboarding" description="Capture core KYC, residency, PEP, related-party, and cross-border information for individuals and companies." />
+      {!canEdit ? <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-700">You have read-only access to this page.</p> : null}
       {error ? <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p> : null}
       <Panel title="Onboarding Profile" subtitle="Structured KYC record tied to a client and, where applicable, the active deal.">
         <div className="mb-4 max-w-sm">
@@ -188,7 +193,7 @@ export default function KycOnboardingPage() {
             <TextArea rows={3} value={form.notes ?? ''} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value || null }))} />
           </div>
           <div className="md:col-span-2">
-            <Button disabled={saving}>{saving ? 'Saving…' : 'Save onboarding profile'}</Button>
+            <Button disabled={saving || !canEdit}>{saving ? 'Saving…' : 'Save onboarding profile'}</Button>
           </div>
         </form>
       </Panel>
