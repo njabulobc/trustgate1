@@ -11,7 +11,12 @@ for d in .venv venv env; do
 done
 
 # backend command detection
-if [ -f manage.py ]; then
+# prefer explicit FastAPI detection, fall back to common filenames
+fastfile=$(grep -RIlE "from[[:space:]]+fastapi[[:space:]]+import[[:space:]]+FastAPI|FastAPI[[:space:]]*\(" . 2>/dev/null | head -n1 || true)
+if [ -n "$fastfile" ]; then
+  module=$(echo "$fastfile" | sed 's|^\./||; s|/|.|g; s|\.py$||')
+  BACKEND_CMD="python -m uvicorn ${module}:app --reload --port 8000"
+elif [ -f manage.py ]; then
   BACKEND_CMD='python manage.py runserver 0.0.0.0:8000'
 elif [ -f main.py ]; then
   BACKEND_CMD='python -m uvicorn main:app --reload --port 8000'
@@ -42,8 +47,10 @@ else
   fi
 fi
 
-# frontend
-if [ -f frontend/package.json ]; then
+# frontend (prefer ui folder for React)
+if [ -f ui/package.json ]; then
+  FRONTDIR="$DIR/ui"
+elif [ -f frontend/package.json ]; then
   FRONTDIR="$DIR/frontend"
 elif [ -f package.json ]; then
   FRONTDIR="$DIR"
