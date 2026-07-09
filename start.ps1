@@ -47,16 +47,20 @@ if (Test-Path (Join-Path $root 'manage.py')) {
 # Start backend in a new PowerShell window (activation is included in the command if available)
 Start-Process powershell -ArgumentList "-NoExit","-Command",$backendCmd -WorkingDirectory $root
 
-# Frontend detection and commands
+# Frontend detection and commands (prefer ui folder for React)
 $frontendDir = $null
-if (Test-Path (Join-Path $root 'frontend\package.json')) { $frontendDir = Join-Path $root 'frontend' }
+if (Test-Path (Join-Path $root 'ui\package.json')) { $frontendDir = Join-Path $root 'ui' }
+elseif (Test-Path (Join-Path $root 'frontend\package.json')) { $frontendDir = Join-Path $root 'frontend' }
 elseif (Test-Path (Join-Path $root 'package.json')) { $frontendDir = $root }
 
 if ($frontendDir) {
     $installCmd = "cd `"$frontendDir`"; npm install --no-audit --no-fund"
-    $runCmd = "cd `"$frontendDir`"; npm run dev 2>$null || npm start 2>$null; pause"
-    # Open terminal to run install (so user can see progress) then run dev server in a separate terminal
+    $buildCmd = "cd `"$frontendDir`"; npm run build 2>$null; if ($LASTEXITCODE -ne 0) { Write-Host 'No build script or build failed - continuing' }"
+    $runCmd = "cd `"$frontendDir`"; npm run dev 2>$null; if ($LASTEXITCODE -ne 0) { npm start 2>$null }; pause"
+    # Open terminals for install, build, and dev server so user can see logs
     Start-Process powershell -ArgumentList "-NoExit","-Command",$installCmd -WorkingDirectory $frontendDir
+    Start-Sleep -Seconds 1
+    Start-Process powershell -ArgumentList "-NoExit","-Command",$buildCmd -WorkingDirectory $frontendDir
     Start-Sleep -Seconds 1
     Start-Process powershell -ArgumentList "-NoExit","-Command",$runCmd -WorkingDirectory $frontendDir
 } else {
