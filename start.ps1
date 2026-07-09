@@ -26,9 +26,15 @@ if (Test-Path (Join-Path $root 'manage.py')) {
     $fast = Get-ChildItem -Path $root -Recurse -Include *.py -ErrorAction SilentlyContinue |
             Select-String -Pattern 'from\s+fastapi\s+import\s+FastAPI|FastAPI\s*\(' -List | Select-Object -First 1
     if ($fast) {
-        # Convert the file path to a python module path (relative to project root)
-        $relative = $fast.Path.Substring($root.Length + 1) -replace '\\','.' -replace '\.py$',''
-        $backendCmd = "$activatePrefix cd `"$root`"; python -m uvicorn $relative:app --reload --port 8000"
+        # Determine relative path robustly
+        try { $relativePath = [System.IO.Path]::GetRelativePath($root, $fast.Path) } catch { $relativePath = $fast.Path.Substring($root.Length + 1) }
+        $relative = $relativePath -replace '[\\/]','.' -replace '\.py$',''
+        # Try to detect the variable name assigned to FastAPI (e.g., "app = FastAPI()")
+        $m = Select-String -Path $fast.Path -Pattern '([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*FastAPI\s*\(' -AllMatches | Select-Object -First 1
+        $appVar = 'app'
+        if ($m -and $m.Matches.Count -gt 0) { $appVar = $m.Matches[0].Groups[1].Value }
+        if ([string]::IsNullOrWhiteSpace($relative)) { $relative = [System.IO.Path]::GetFileNameWithoutExtension($fast.Path) }
+        $backendCmd = "$activatePrefix cd `"$root`"; python -m uvicorn $relative`:$appVar --reload --port 8000"
     } elseif (Test-Path (Join-Path $root 'main.py')) {
         $backendCmd = "$activatePrefix cd `"$root`"; python -m uvicorn main:app --reload --port 8000"
     } elseif (Test-Path (Join-Path $root 'app.py')) {

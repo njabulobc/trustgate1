@@ -15,7 +15,10 @@ done
 fastfile=$(grep -RIlE "from[[:space:]]+fastapi[[:space:]]+import[[:space:]]+FastAPI|FastAPI[[:space:]]*\(" . 2>/dev/null | head -n1 || true)
 if [ -n "$fastfile" ]; then
   module=$(echo "$fastfile" | sed 's|^\./||; s|/|.|g; s|\.py$||')
-  BACKEND_CMD="python -m uvicorn ${module}:app --reload --port 8000"
+  # try to detect the app variable name (e.g., app = FastAPI())
+  appvar=$(grep -E "^[[:space:]]*[[:alpha:]_][[:alnum:]_]*[[:space:]]*=.*FastAPI" "$fastfile" 2>/dev/null | sed -E 's/^[[:space:]]*([[:alpha:]_][[:alnum:]_]*)[[:space:]]*=.*/\1/' | head -n1 || true)
+  if [ -z "$appvar" ]; then appvar=app; fi
+  BACKEND_CMD="python -m uvicorn ${module}:${appvar} --reload --port 8000"
 elif [ -f manage.py ]; then
   BACKEND_CMD='python manage.py runserver 0.0.0.0:8000'
 elif [ -f main.py ]; then
