@@ -55,8 +55,8 @@ elseif (Test-Path (Join-Path $root 'package.json')) { $frontendDir = $root }
 
 if ($frontendDir) {
     $installCmd = "cd `"$frontendDir`"; npm install --no-audit --no-fund"
-    $buildCmd = "cd `"$frontendDir`"; npm run build 2>$null; if ($LASTEXITCODE -ne 0) { Write-Host 'No build script or build failed - continuing' }"
-    $runCmd = "cd `"$frontendDir`"; npm run dev 2>$null; if ($LASTEXITCODE -ne 0) { npm start 2>$null }; pause"
+    $buildCmd = "cd `"$frontendDir`"; npm run build 2`$null; if ($LASTEXITCODE -ne 0) { Write-Host 'No build script or build failed - continuing' }"
+    $runCmd = "cd `"$frontendDir`"; npm run dev 2`$null; if ($LASTEXITCODE -ne 0) { npm start 2`$null }; pause"
     # Open terminals for install, build, and dev server so user can see logs
     Start-Process powershell -ArgumentList "-NoExit","-Command",$installCmd -WorkingDirectory $frontendDir
     Start-Sleep -Seconds 1
